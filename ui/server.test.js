@@ -117,7 +117,7 @@ test("backend safety behaviors", { timeout: 75_000 }, async (context) => {
       },
     },
   });
-  const childEnvironment = app.buildChildEnvironment();
+  const childEnvironment = app.buildChildEnvironment(runtimeDataDirectory);
   assert.equal(app.TEST_MODE, true);
   assert.equal(app.MUTATIONS_ENABLED, false);
   assert.equal(app.HAS_ADMIN_PRIVILEGES, true);
@@ -128,6 +128,10 @@ test("backend safety behaviors", { timeout: 75_000 }, async (context) => {
   assert.equal(childEnvironment.ProgramFiles, path.join(childEnvironment.SystemDrive, "Program Files"));
   assert.equal(childEnvironment["ProgramFiles(x86)"], path.join(childEnvironment.SystemDrive, "Program Files (x86)"));
   assert.equal(Object.hasOwn(childEnvironment, "USERPROFILE"), false);
+  const expectedTestCachePath = path.win32.isAbsolute(process.env.PSModuleAnalysisCachePath || "")
+    ? process.env.PSModuleAnalysisCachePath
+    : undefined;
+  assert.equal(childEnvironment.PSModuleAnalysisCachePath, expectedTestCachePath);
   assert.deepEqual(app.getRuntimePayload().windows, {
     caption: "Microsoft Windows 11 Pro",
     version: "10.0.26100",

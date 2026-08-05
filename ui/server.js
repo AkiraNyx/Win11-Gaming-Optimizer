@@ -94,7 +94,12 @@ function buildChildEnvironment(dataDirectory) {
     PATHEXT: ".COM;.EXE;.BAT;.CMD",
     PSModulePath: path.join(WINDOWS_POWERSHELL_DIR, "Modules"),
   };
-  if (dataDirectory) environment.WIN11OPTIMIZER_DATA_DIR = dataDirectory;
+  if (dataDirectory) {
+    environment.WIN11OPTIMIZER_DATA_DIR = dataDirectory;
+    if (TEST_MODE && path.win32.isAbsolute(process.env.PSModuleAnalysisCachePath || "")) {
+      environment.PSModuleAnalysisCachePath = process.env.PSModuleAnalysisCachePath;
+    }
+  }
   return environment;
 }
 

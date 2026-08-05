@@ -26,8 +26,8 @@ jobs:
           cache-dependency-path: ui/package-lock.json
 
       - name: Test and build EXE
-        shell: cmd
-        run: Build.bat
+        shell: pwsh
+        run: cmd.exe /d /c Build.bat
 
       - name: Upload EXE
         uses: actions/upload-artifact@v7

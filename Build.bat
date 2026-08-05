@@ -106,7 +106,7 @@ if errorlevel 1 (
     goto :fail
 )
 for %%F in ("..\dist\Win11Optimizer.exe") do set "artifactSize=%%~zF"
-for /f "usebackq delims=" %%H in (`powershell.exe -NoLogo -NoProfile -NonInteractive -Command "(Get-FileHash -Algorithm SHA256 -LiteralPath '..\dist\Win11Optimizer.exe').Hash"`) do set "artifactHash=%%H"
+for /f "usebackq delims=" %%H in (`node -e "require('node:fs').createReadStream(process.argv[1]).pipe(require('node:crypto').createHash('sha256')).setEncoding('hex').pipe(process.stdout)" "..\dist\Win11Optimizer.exe"`) do set "artifactHash=%%H"
 if not defined artifactHash (
     echo  Unable to calculate the executable SHA-256 hash.
     set "exitCode=1"
