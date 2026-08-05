@@ -38,11 +38,8 @@ PowerShell 5.1 执行引擎组成的控制面板。它会先读取硬件与系�
 - Windows PowerShell 5.1
 - 管理员权限
 
-如果仓库中已有构建产物，可直接运行：
-
-```powershell
-.\dist\Win11Optimizer.exe
-```
+从 [GitHub Releases](https://github.com/AkiraNyx/Win11-Gaming-Optimizer/releases)
+下载所需版本的 `Win11Optimizer.exe`，然后直接运行。
 
 应用会请求管理员权限。启动后等待系统状态读取完成，再选择预设或调整单项设置。
 
