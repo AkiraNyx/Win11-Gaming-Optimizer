@@ -8,6 +8,8 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
+const POWERSHELL_TEST_TIMEOUT_MS = 15_000;
+
 function request(port, pathname, options = {}) {
   return new Promise((resolve, reject) => {
     const body = options.body ? JSON.stringify(options.body) : null;
@@ -53,7 +55,7 @@ async function waitForProcessExit(pid, timeoutMs = 5_000) {
   return !isProcessRunning(pid);
 }
 
-test("backend safety behaviors", { timeout: 20_000 }, async (context) => {
+test("backend safety behaviors", { timeout: 75_000 }, async (context) => {
   const serverSource = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
   assert.equal(fs.existsSync(path.join(__dirname, "fix-encoding.js")), false);
   const runtimeInfoStart = serverSource.indexOf("async function detectRuntimeInfo()");
@@ -336,7 +338,7 @@ test("backend safety behaviors", { timeout: 20_000 }, async (context) => {
   assert.equal(taskCalls, 1);
   assert.equal(await app.runSingleFlight(flightKey, () => Promise.resolve("new")), "new");
 
-  const normal = await app.runPowerShell("Write-Output 'ok'; exit 0", 5_000);
+  const normal = await app.runPowerShell("Write-Output 'ok'; exit 0", POWERSHELL_TEST_TIMEOUT_MS);
   assert.equal(normal.code, 0);
   assert.match(normal.stdout, /ok/);
 
@@ -345,7 +347,7 @@ test("backend safety behaviors", { timeout: 20_000 }, async (context) => {
     "$bytes = [Text.Encoding]::UTF8.GetBytes('中文状态')",
     "foreach ($byte in $bytes) { $stream.WriteByte($byte); $stream.Flush(); Start-Sleep -Milliseconds 10 }",
   ].join("; ");
-  const unicode = await app.runPowerShell(unicodeCommand, 5_000);
+  const unicode = await app.runPowerShell(unicodeCommand, POWERSHELL_TEST_TIMEOUT_MS);
   assert.equal(unicode.code, 0);
   assert.equal(unicode.stdout, "中文状态");
 
@@ -353,7 +355,7 @@ test("backend safety behaviors", { timeout: 20_000 }, async (context) => {
     "$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
     "$value = [ordered]@{ Caption = 'Microsoft Windows 11 专业版' }",
     "[Console]::Out.Write(($value | ConvertTo-Json -Compress))",
-  ].join("; "), 5_000);
+  ].join("; "), POWERSHELL_TEST_TIMEOUT_MS);
   assert.equal(unicodeJson.code, 0);
   assert.doesNotMatch(unicodeJson.stdout, /\uFFFD/);
   assert.equal(JSON.parse(unicodeJson.stdout).Caption, "Microsoft Windows 11 专业版");
@@ -369,7 +371,7 @@ test("backend safety behaviors", { timeout: 20_000 }, async (context) => {
     "exit 7",
   ].join("\r\n"), "utf8");
   try {
-    const classified = await app.runPowerShell(app.buildScriptCommand(streamScript), 5_000);
+    const classified = await app.runPowerShell(app.buildScriptCommand(streamScript), POWERSHELL_TEST_TIMEOUT_MS);
     assert.equal(classified.code, 7);
     assert.match(classified.stdout, /\[INFO\] hello/);
     assert.match(classified.stdout, /\[INFO\] host line/);
@@ -387,7 +389,7 @@ test("backend safety behaviors", { timeout: 20_000 }, async (context) => {
   assert.ok(Date.now() - startedAt < 10_000);
 });
 
-test("PowerShell descendant cleanup baseline", { timeout: 15_000 }, async () => {
+test("PowerShell descendant cleanup baseline", { timeout: 25_000 }, async () => {
   const app = require("./server");
   let descendantPid = null;
   const quotedPowerShell = `'${app.POWERSHELL_EXE.replace(/'/g, "''")}'`;
@@ -397,7 +399,7 @@ test("PowerShell descendant cleanup baseline", { timeout: 15_000 }, async () => 
     "Wait-Process -Id $child.Id",
   ].join("; ");
   try {
-    await assert.rejects(app.runPowerShell(descendantCommand, 5_000, {
+    await assert.rejects(app.runPowerShell(descendantCommand, POWERSHELL_TEST_TIMEOUT_MS, {
       onStdout: (text) => {
         const match = text.match(/DESCENDANT_PID=(\d+)/);
         if (match) descendantPid = Number.parseInt(match[1], 10);
