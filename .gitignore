@@ -1,0 +1,48 @@
+﻿# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+
+# Production
+build-electron/
+dist/
+
+# Local package caches
+ui/.npm-cache/
+ui/.npm-cache-review/
+*.tsbuildinfo
+
+# Local planning records
+.codex-plans-msf/
+bug-fix-plan.md
+feature-plan.md
+electron-prompt.md
+feature-prompt.md
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config output
+config/output/

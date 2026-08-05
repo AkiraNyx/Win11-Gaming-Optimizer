@@ -1,0 +1,1643 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Windows 11 游戏优化器配置 v2",
+  "type": "object",
+  "required": [
+    "version",
+    "preset",
+    "categories"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": "2.0"
+    },
+    "preset": {
+      "type": "string",
+      "enum": [
+        "conservative",
+        "balanced",
+        "extreme",
+        "custom"
+      ]
+    },
+    "exportedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hasSSD": {
+          "type": "boolean"
+        },
+        "hasHDD": {
+          "type": "boolean"
+        },
+        "ramGB": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cpuCores": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cpuName": {
+          "type": "string"
+        },
+        "gpuName": {
+          "type": "string"
+        },
+        "gpuBrand": {
+          "type": "string",
+          "enum": [
+            "NVIDIA",
+            "AMD",
+            "Intel",
+            "Unknown"
+          ]
+        }
+      }
+    },
+    "categories": {
+      "type": "object",
+      "required": [
+        "windowsUpdate",
+        "bootOptimization",
+        "taskScheduling",
+        "serviceOptimization",
+        "powerManagement",
+        "storageOptimization",
+        "ssdOptimization",
+        "memoryOptimization",
+        "cpuOptimization",
+        "gpuOptimization",
+        "networkOptimization",
+        "uiOptimization",
+        "privacyOptimization",
+        "securityOptimization"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "windowsUpdate": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "disableP2P",
+                "deferQualityUpdates",
+                "deferFeatureUpdates",
+                "disableAutoDriverUpdate",
+                "disableAutoUpdate"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "disableP2P": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "deferQualityUpdates": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 365
+                        },
+                        {
+                          "const": "systemDefault"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "deferFeatureUpdates": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 3650
+                        },
+                        {
+                          "const": "systemDefault"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "disableAutoDriverUpdate": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableAutoUpdate": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "bootOptimization": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "fastStartup",
+                "disableBootLog",
+                "reduceBootTimeout",
+                "disableStartupSound",
+                "bootProcessorsFull"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "fastStartup": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableBootLog": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "reduceBootTimeout": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 999
+                        },
+                        {
+                          "const": "systemDefault"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "disableStartupSound": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "bootProcessorsFull": {
+                  "type": "object",
+                  "required": [
+                    "execute"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "execute": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "taskScheduling": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "enableGameMode",
+                "foregroundPriority",
+                "disableBackgroundApps",
+                "disableGameDVR"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "enableGameMode": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "foregroundPriority": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 63
+                        },
+                        {
+                          "const": "systemDefault"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "disableBackgroundApps": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        "userControl",
+                        "forceAllow",
+                        "forceDeny"
+                      ]
+                    }
+                  }
+                },
+                "disableGameDVR": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "serviceOptimization": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "telemetry",
+                "fax",
+                "remoteRegistry",
+                "errorReporting",
+                "printSpooler",
+                "sysMain",
+                "windowsSearch",
+                "xboxAuth",
+                "xboxGameSave",
+                "xboxNetwork",
+                "xboxGip",
+                "diagHub",
+                "bluetooth"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "telemetry": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "automaticDelayed",
+                        "manual",
+                        "disabled"
+                      ]
+                    }
+                  }
+                },
+                "fax": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "automaticDelayed",
+                        "manual",
+                        "disabled"
+                      ]
+                    }
+                  }
+                },
+                "remoteRegistry": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "automaticDelayed",
+                        "manual",
+                        "disabled"
+                      ]
+                    }
+                  }
+                },
+                "errorReporting": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "automaticDelayed",
+                        "manual",
+                        "disabled"
+                      ]
+                    }
+                  }
+                },
+                "printSpooler": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "automaticDelayed",
+                        "manual",
+                        "disabled"
+                      ]
+                    }
+                  }
+                },
+                "sysMain": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "automaticDelayed",
+                        "manual",
+                        "disabled"
+                      ]
+                    }
+                  }
+                },
+                "windowsSearch": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "automaticDelayed",
+                        "manual",
+                        "disabled"
+                      ]
+                    }
+                  }
+                },
+                "xboxAuth": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "automaticDelayed",
+                        "manual",
+                        "disabled"
+                      ]
+                    }
+                  }
+                },
+                "xboxGameSave": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "automaticDelayed",
+                        "manual",
+                        "disabled"
+                      ]
+                    }
+                  }
+                },
+                "xboxNetwork": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "automaticDelayed",
+                        "manual",
+                        "disabled"
+                      ]
+                    }
+                  }
+                },
+                "xboxGip": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "automaticDelayed",
+                        "manual",
+                        "disabled"
+                      ]
+                    }
+                  }
+                },
+                "diagHub": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "automaticDelayed",
+                        "manual",
+                        "disabled"
+                      ]
+                    }
+                  }
+                },
+                "bluetooth": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "automatic",
+                        "automaticDelayed",
+                        "manual",
+                        "disabled"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "powerManagement": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "ultimatePerformancePlan",
+                "minProcessorState100",
+                "disablePowerThrottling",
+                "disableUsbSuspend",
+                "disablePcieLpm",
+                "disableDiskAutoOff",
+                "aggressiveBoost"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "ultimatePerformancePlan": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "balanced",
+                            "ultimatePerformance"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "minProcessorState100": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    }
+                  }
+                },
+                "disablePowerThrottling": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableUsbSuspend": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disablePcieLpm": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        0,
+                        1,
+                        2
+                      ]
+                    }
+                  }
+                },
+                "disableDiskAutoOff": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 86400
+                    }
+                  }
+                },
+                "aggressiveBoost": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "storageOptimization": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "disableLastAccess",
+                "disableDot3Name",
+                "optimizePagefile",
+                "disableSearchIndex",
+                "disableNtfsLog",
+                "disableHibernation"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "disableLastAccess": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 3
+                    }
+                  }
+                },
+                "disableDot3Name": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 3
+                    }
+                  }
+                },
+                "optimizePagefile": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        "systemManaged",
+                        "custom",
+                        "disabled"
+                      ]
+                    }
+                  }
+                },
+                "disableSearchIndex": {
+                  "type": "object",
+                  "required": [
+                    "diagnostic"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "diagnostic": {
+                      "const": true
+                    }
+                  }
+                },
+                "disableNtfsLog": {
+                  "type": "object",
+                  "required": [
+                    "diagnostic"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "diagnostic": {
+                      "const": true
+                    }
+                  }
+                },
+                "disableHibernation": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "ssdOptimization": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "enableTrim",
+                "disableDefrag",
+                "disablePrefetch",
+                "enableWriteCache",
+                "checkAhci"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "enableTrim": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableDefrag": {
+                  "type": "object",
+                  "required": [
+                    "diagnostic"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "diagnostic": {
+                      "const": true
+                    }
+                  }
+                },
+                "disablePrefetch": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        "systemDefault",
+                        "enabled",
+                        "disabled",
+                        "custom"
+                      ]
+                    }
+                  }
+                },
+                "enableWriteCache": {
+                  "type": "object",
+                  "required": [
+                    "diagnostic"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "diagnostic": {
+                      "const": true
+                    }
+                  }
+                },
+                "checkAhci": {
+                  "type": "object",
+                  "required": [
+                    "diagnostic"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "diagnostic": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "memoryOptimization": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "disableMemoryCompression",
+                "disableCrashDump",
+                "largeSystemCache"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "disableMemoryCompression": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableCrashDump": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        "systemDefault",
+                        0,
+                        1,
+                        2,
+                        3,
+                        7
+                      ]
+                    }
+                  }
+                },
+                "largeSystemCache": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        "desktop",
+                        "server"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "cpuOptimization": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "optimizeTimer",
+                "disableHPET",
+                "disableCoreParking"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "optimizeTimer": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        "systemDefault",
+                        "platformTick",
+                        "custom"
+                      ]
+                    }
+                  }
+                },
+                "disableHPET": {
+                  "type": "object",
+                  "required": [
+                    "execute"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "execute": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableCoreParking": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "gpuOptimization": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "hwSchedule",
+                "disableFullscreenOpt",
+                "gpuPriority",
+                "aeroPeek",
+                "nvidiaOptimize",
+                "amdOptimize"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "hwSchedule": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        "systemDefault",
+                        "enabled",
+                        "disabled",
+                        "custom"
+                      ]
+                    }
+                  }
+                },
+                "disableFullscreenOpt": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "gpuPriority": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 31
+                        },
+                        {
+                          "const": "systemDefault"
+                        },
+                        {
+                          "const": "custom"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "aeroPeek": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "nvidiaOptimize": {
+                  "type": "object",
+                  "required": [
+                    "execute"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "execute": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "amdOptimize": {
+                  "type": "object",
+                  "required": [
+                    "execute"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "execute": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "networkOptimization": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "disableNagle",
+                "disableThrottling",
+                "optimizeTcp",
+                "disableBandwidthLimit",
+                "optimizeDns",
+                "disableDeliveryOpt",
+                "disableNicPowerSave"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "disableNagle": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableThrottling": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "optimizeTcp": {
+                  "type": "object",
+                  "required": [
+                    "diagnostic"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "diagnostic": {
+                      "const": true
+                    }
+                  }
+                },
+                "disableBandwidthLimit": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100
+                        },
+                        {
+                          "const": "systemDefault"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "optimizeDns": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        "automatic",
+                        "cloudflare",
+                        "custom"
+                      ]
+                    }
+                  }
+                },
+                "disableDeliveryOpt": {
+                  "type": "object",
+                  "required": [
+                    "diagnostic"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "diagnostic": {
+                      "const": true
+                    }
+                  }
+                },
+                "disableNicPowerSave": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        "enabled",
+                        "disabled",
+                        "mixed"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "uiOptimization": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "disableTransparency",
+                "disableAnimations",
+                "disableShadows",
+                "disableSnapAssist",
+                "disableWidgets",
+                "disableCopilot",
+                "disableNotificationCenter",
+                "performanceVisualEffects"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "disableTransparency": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableAnimations": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableShadows": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableSnapAssist": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableWidgets": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableCopilot": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableNotificationCenter": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "performanceVisualEffects": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        "systemDefault",
+                        "appearance",
+                        "performance",
+                        "custom"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "privacyOptimization": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "telemetryMinimal",
+                "disableAdId",
+                "disableActivityHistory",
+                "disableLocation",
+                "disableDiagViewer",
+                "disableSuggestions",
+                "disableStartSuggestions",
+                "disableCortana"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "telemetryMinimal": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        "systemDefault",
+                        0,
+                        1,
+                        2,
+                        3
+                      ]
+                    }
+                  }
+                },
+                "disableAdId": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableActivityHistory": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableLocation": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableDiagViewer": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableSuggestions": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableStartSuggestions": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "disableCortana": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "securityOptimization": {
+          "type": "object",
+          "required": [
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "object",
+              "required": [
+                "defenderExclusions",
+                "optimizeScanSchedule",
+                "optimizeDEP",
+                "reduceMitigations"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "defenderExclusions": {
+                  "type": "object",
+                  "required": [
+                    "execute"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "execute": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "optimizeScanSchedule": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "optimizeDEP": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        "systemDefault",
+                        "OptIn",
+                        "OptOut",
+                        "AlwaysOn",
+                        "AlwaysOff"
+                      ]
+                    }
+                  }
+                },
+                "reduceMitigations": {
+                  "type": "object",
+                  "required": [
+                    "target"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "target": {
+                      "enum": [
+                        "systemDefault",
+                        "reduced"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

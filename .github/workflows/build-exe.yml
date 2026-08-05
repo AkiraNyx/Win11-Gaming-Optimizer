@@ -1,0 +1,39 @@
+name: Build EXE
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Windows executable
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Test and build EXE
+        shell: cmd
+        run: Build.bat
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v7
+        with:
+          name: Win11Optimizer
+          path: dist/Win11Optimizer.exe
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

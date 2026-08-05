@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; font-src 'self'">
+  <title>Windows 11 游戏优化工具</title>
+  <style>
+    @font-face {
+      font-family: "Geist";
+      src: url("./geist-sans.woff2") format("woff2");
+      font-display: swap;
+      font-style: normal;
+      font-weight: 100 900;
+    }
+
+    :root {
+      color-scheme: dark;
+      --background: oklch(0.145 0 0);
+      --foreground: oklch(0.985 0 0);
+      --muted: oklch(0.269 0 0);
+      --muted-foreground: oklch(0.708 0 0);
+      --border: oklch(1 0 0 / 10%);
+      --ring: oklch(0.556 0 0);
+      --destructive: oklch(0.704 0.191 22.216);
+      --destructive-foreground: oklch(0.985 0 0);
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      background: var(--background);
+      color: var(--foreground);
+      font-family: "Geist", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body > .titlebar,
+    body > main {
+      animation: startup-shell-enter 180ms ease-out both;
+    }
+
+    button { font: inherit; }
+    [hidden] { display: none !important; }
+
+    .electron-drag-region {
+      -webkit-app-region: drag;
+      app-region: drag;
+    }
+
+    .electron-no-drag {
+      -webkit-app-region: no-drag;
+      app-region: no-drag;
+    }
+
+    .titlebar {
+      display: flex;
+      min-height: 60px;
+      flex: 0 0 60px;
+      align-items: flex-start;
+      border-bottom: 1px solid var(--border);
+      background: var(--background);
+    }
+
+    .brand {
+      display: flex;
+      min-width: 0;
+      flex: 1;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 24px;
+    }
+
+    .brand-icon {
+      width: 24px;
+      height: 24px;
+      flex: 0 0 24px;
+    }
+
+    .brand-copy { min-width: 0; }
+
+    .brand-title,
+    .brand-subtitle {
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .brand-title {
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 28px;
+    }
+
+    .brand-subtitle {
+      color: var(--muted-foreground);
+      font-size: 12px;
+      line-height: 16px;
+    }
+
+    .window-controls {
+      display: flex;
+      flex: 0 0 auto;
+    }
+
+    .window-button {
+      display: grid;
+      width: 48px;
+      height: 48px;
+      padding: 0;
+      place-items: center;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: inherit;
+      cursor: default;
+      transition: background-color 160ms ease-out, color 160ms ease-out;
+    }
+
+    .window-button:hover { background: color-mix(in oklch, var(--muted) 50%, transparent); }
+    .window-button.close:hover { background: var(--destructive); color: var(--destructive-foreground); }
+    .window-button:focus-visible {
+      position: relative;
+      z-index: 1;
+      outline: 3px solid var(--ring);
+      outline-offset: -3px;
+    }
+
+    .window-button svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .window-button .compact-icon {
+      width: 14px;
+      height: 14px;
+    }
+
+    main {
+      display: grid;
+      min-height: 0;
+      flex: 1;
+      place-items: center;
+      padding: 48px 24px;
+    }
+
+    .startup-content,
+    .error-content {
+      width: min(420px, calc(100vw - 48px));
+      text-align: center;
+    }
+
+    .status-icon {
+      width: 32px;
+      height: 32px;
+      margin-bottom: 20px;
+      color: var(--muted-foreground);
+    }
+
+    .error-content .status-icon { color: var(--destructive); }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+      line-height: 28px;
+      letter-spacing: 0;
+    }
+
+    .status,
+    .error-detail {
+      min-height: 20px;
+      margin: 8px 0 0;
+      color: var(--muted-foreground);
+      font-size: 14px;
+      line-height: 20px;
+    }
+
+    .error-detail {
+      max-height: min(240px, 35vh);
+      overflow: auto;
+      overflow-wrap: anywhere;
+    }
+
+    .progress {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      width: 100%;
+      height: 4px;
+      margin-top: 28px;
+    }
+
+    .progress-segment {
+      height: 4px;
+      overflow: hidden;
+      border-radius: 2px;
+      background: var(--muted);
+      transition: background-color 160ms ease-out, opacity 160ms ease-out;
+    }
+
+    .progress-segment.complete,
+    .progress-segment.active { background: var(--foreground); }
+    .progress-segment.active { animation: pulse 1.2s ease-in-out infinite; }
+
+    .exit-button {
+      min-width: 112px;
+      height: 36px;
+      margin-top: 24px;
+      padding: 0 16px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--foreground);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background-color 160ms ease-out;
+    }
+
+    .exit-button:hover { background: var(--muted); }
+    .exit-button:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
+
+    @keyframes startup-shell-enter {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.55; }
+    }
+
+    @media (max-width: 639px) {
+      .brand { padding-inline: 16px; }
+      .brand-subtitle { display: none; }
+      .brand-title { font-size: 14px; line-height: 32px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="titlebar electron-drag-region">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="6" x2="10" y1="11" y2="11"></line>
+        <line x1="8" x2="8" y1="9" y2="13"></line>
+        <line x1="15" x2="15.01" y1="12" y2="12"></line>
+        <line x1="18" x2="18.01" y1="10" y2="10"></line>
+        <path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"></path>
+      </svg>
+      <div class="brand-copy">
+        <p class="brand-title">Windows 11 游戏优化工具</p>
+        <p class="brand-subtitle">目标状态 · 变更记录 · 硬件感知</p>
+      </div>
+    </div>
+    <div class="window-controls electron-no-drag" aria-label="窗口控制">
+      <button id="minimize" class="window-button" type="button" aria-label="最小化窗口" title="最小化窗口">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"></path></svg>
+      </button>
+      <button id="toggle-maximize" class="window-button" type="button" aria-label="最大化窗口" title="最大化窗口">
+        <svg id="maximize-icon" class="compact-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"></rect></svg>
+        <svg id="restore-icon" class="compact-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+      </button>
+      <button id="close" class="window-button close" type="button" aria-label="关闭窗口" title="关闭窗口">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main" aria-busy="true">
+    <section id="startup-content" class="startup-content" aria-labelledby="startup-title">
+      <svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path>
+      </svg>
+      <h1 id="startup-title">正在启动应用</h1>
+      <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true">正在准备启动界面</p>
+      <div id="progress" class="progress" role="progressbar" aria-label="启动进度" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0" aria-valuetext="正在准备启动界面">
+        <span class="progress-segment"></span>
+        <span class="progress-segment"></span>
+        <span class="progress-segment"></span>
+        <span class="progress-segment"></span>
+      </div>
+    </section>
+
+    <section id="error-content" class="error-content" role="alert" aria-labelledby="error-title" hidden>
+      <svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>
+      <h1 id="error-title">应用未能启动</h1>
+      <p id="error-detail" class="error-detail">启动过程中发生未知错误。</p>
+      <button id="exit" class="exit-button" type="button">退出应用</button>
+    </section>
+  </main>
+
+  <script src="./startup-shell.js" defer></script>
+</body>
+</html>

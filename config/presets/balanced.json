@@ -1,0 +1,314 @@
+{
+  "version": "2.0",
+  "preset": "balanced",
+  "categories": {
+    "windowsUpdate": {
+      "items": {
+        "disableP2P": {
+          "target": false
+        },
+        "deferQualityUpdates": {
+          "target": 7
+        },
+        "deferFeatureUpdates": {
+          "target": 30
+        },
+        "disableAutoDriverUpdate": {
+          "target": false
+        },
+        "disableAutoUpdate": {
+          "target": true
+        }
+      }
+    },
+    "bootOptimization": {
+      "items": {
+        "fastStartup": {
+          "target": true
+        },
+        "disableBootLog": {
+          "target": false
+        },
+        "reduceBootTimeout": {
+          "target": 0
+        },
+        "disableStartupSound": {
+          "target": false
+        },
+        "bootProcessorsFull": {
+          "execute": false
+        }
+      }
+    },
+    "taskScheduling": {
+      "items": {
+        "enableGameMode": {
+          "target": true
+        },
+        "foregroundPriority": {
+          "target": 38
+        },
+        "disableBackgroundApps": {
+          "target": "forceDeny"
+        },
+        "disableGameDVR": {
+          "target": false
+        }
+      }
+    },
+    "serviceOptimization": {
+      "items": {
+        "telemetry": {
+          "target": "manual"
+        },
+        "fax": {
+          "target": "disabled"
+        },
+        "remoteRegistry": {
+          "target": "disabled"
+        },
+        "errorReporting": {
+          "target": "disabled"
+        },
+        "printSpooler": {
+          "target": "disabled"
+        },
+        "sysMain": {
+          "target": "disabled"
+        },
+        "windowsSearch": {
+          "target": "manual"
+        },
+        "xboxAuth": {
+          "target": "manual"
+        },
+        "xboxGameSave": {
+          "target": "manual"
+        },
+        "xboxNetwork": {
+          "target": "manual"
+        },
+        "xboxGip": {
+          "target": "manual"
+        },
+        "diagHub": {
+          "target": "disabled"
+        },
+        "bluetooth": {
+          "target": "manual"
+        }
+      }
+    },
+    "powerManagement": {
+      "items": {
+        "ultimatePerformancePlan": {
+          "target": "ultimatePerformance"
+        },
+        "minProcessorState100": {
+          "target": 100
+        },
+        "disablePowerThrottling": {
+          "target": false
+        },
+        "disableUsbSuspend": {
+          "target": false
+        },
+        "disablePcieLpm": {
+          "target": 0
+        },
+        "disableDiskAutoOff": {
+          "target": 0
+        },
+        "aggressiveBoost": {
+          "target": 2
+        }
+      }
+    },
+    "storageOptimization": {
+      "items": {
+        "disableLastAccess": {
+          "target": 1
+        },
+        "disableDot3Name": {
+          "target": 1
+        },
+        "optimizePagefile": {
+          "target": "systemManaged"
+        },
+        "disableSearchIndex": {
+          "diagnostic": true
+        },
+        "disableNtfsLog": {
+          "diagnostic": true
+        },
+        "disableHibernation": {
+          "target": true
+        }
+      }
+    },
+    "ssdOptimization": {
+      "items": {
+        "enableTrim": {
+          "target": true
+        },
+        "disableDefrag": {
+          "diagnostic": true
+        },
+        "disablePrefetch": {
+          "target": "systemDefault"
+        },
+        "enableWriteCache": {
+          "diagnostic": true
+        },
+        "checkAhci": {
+          "diagnostic": true
+        }
+      }
+    },
+    "memoryOptimization": {
+      "items": {
+        "disableMemoryCompression": {
+          "target": false
+        },
+        "disableCrashDump": {
+          "target": 0
+        },
+        "largeSystemCache": {
+          "target": "desktop"
+        }
+      }
+    },
+    "cpuOptimization": {
+      "items": {
+        "optimizeTimer": {
+          "target": "platformTick"
+        },
+        "disableHPET": {
+          "execute": false
+        },
+        "disableCoreParking": {
+          "target": 100
+        }
+      }
+    },
+    "gpuOptimization": {
+      "items": {
+        "hwSchedule": {
+          "target": "enabled"
+        },
+        "disableFullscreenOpt": {
+          "target": false
+        },
+        "gpuPriority": {
+          "target": 8
+        },
+        "aeroPeek": {
+          "target": true
+        },
+        "nvidiaOptimize": {
+          "execute": false
+        },
+        "amdOptimize": {
+          "execute": false
+        }
+      }
+    },
+    "networkOptimization": {
+      "items": {
+        "disableNagle": {
+          "target": false
+        },
+        "disableThrottling": {
+          "target": false
+        },
+        "optimizeTcp": {
+          "diagnostic": true
+        },
+        "disableBandwidthLimit": {
+          "target": 0
+        },
+        "optimizeDns": {
+          "target": "cloudflare"
+        },
+        "disableDeliveryOpt": {
+          "diagnostic": true
+        },
+        "disableNicPowerSave": {
+          "target": "disabled"
+        }
+      }
+    },
+    "uiOptimization": {
+      "items": {
+        "disableTransparency": {
+          "target": false
+        },
+        "disableAnimations": {
+          "target": false
+        },
+        "disableShadows": {
+          "target": false
+        },
+        "disableSnapAssist": {
+          "target": false
+        },
+        "disableWidgets": {
+          "target": false
+        },
+        "disableCopilot": {
+          "target": false
+        },
+        "disableNotificationCenter": {
+          "target": true
+        },
+        "performanceVisualEffects": {
+          "target": "performance"
+        }
+      }
+    },
+    "privacyOptimization": {
+      "items": {
+        "telemetryMinimal": {
+          "target": 1
+        },
+        "disableAdId": {
+          "target": false
+        },
+        "disableActivityHistory": {
+          "target": false
+        },
+        "disableLocation": {
+          "target": false
+        },
+        "disableDiagViewer": {
+          "target": false
+        },
+        "disableSuggestions": {
+          "target": false
+        },
+        "disableStartSuggestions": {
+          "target": false
+        },
+        "disableCortana": {
+          "target": false
+        }
+      }
+    },
+    "securityOptimization": {
+      "items": {
+        "defenderExclusions": {
+          "execute": false
+        },
+        "optimizeScanSchedule": {
+          "target": true
+        },
+        "optimizeDEP": {
+          "target": "systemDefault"
+        },
+        "reduceMitigations": {
+          "target": "systemDefault"
+        }
+      }
+    }
+  }
+}
