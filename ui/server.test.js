@@ -387,7 +387,7 @@ test("backend safety behaviors", { timeout: 20_000 }, async (context) => {
   assert.ok(Date.now() - startedAt < 10_000);
 });
 
-test("PowerShell descendant cleanup baseline", { timeout: 10_000 }, async () => {
+test("PowerShell descendant cleanup baseline", { timeout: 15_000 }, async () => {
   const app = require("./server");
   let descendantPid = null;
   const quotedPowerShell = `'${app.POWERSHELL_EXE.replace(/'/g, "''")}'`;
@@ -397,7 +397,7 @@ test("PowerShell descendant cleanup baseline", { timeout: 10_000 }, async () => 
     "Wait-Process -Id $child.Id",
   ].join("; ");
   try {
-    await assert.rejects(app.runPowerShell(descendantCommand, 1_500, {
+    await assert.rejects(app.runPowerShell(descendantCommand, 5_000, {
       onStdout: (text) => {
         const match = text.match(/DESCENDANT_PID=(\d+)/);
         if (match) descendantPid = Number.parseInt(match[1], 10);

@@ -39,7 +39,15 @@ if errorlevel 1 (
 )
 echo.
 
-echo  [3/8] Running tests...
+echo  [3/8] Building static web UI...
+call npm run build
+if errorlevel 1 (
+    set "exitCode=!errorlevel!"
+    goto :fail
+)
+echo.
+
+echo  [4/8] Running tests...
 call npm run test
 if errorlevel 1 (
     set "exitCode=!errorlevel!"
@@ -47,7 +55,7 @@ if errorlevel 1 (
 )
 echo.
 
-echo  [4/8] Linting sources...
+echo  [5/8] Linting sources...
 call npm run lint
 if errorlevel 1 (
     set "exitCode=!errorlevel!"
@@ -55,16 +63,8 @@ if errorlevel 1 (
 )
 echo.
 
-echo  [5/8] Checking TypeScript...
+echo  [6/8] Checking TypeScript...
 call npx tsc --noEmit --incremental false
-if errorlevel 1 (
-    set "exitCode=!errorlevel!"
-    goto :fail
-)
-echo.
-
-echo  [6/8] Building static web UI...
-call npm run build
 if errorlevel 1 (
     set "exitCode=!errorlevel!"
     goto :fail
