@@ -240,6 +240,13 @@ dist\Win11Optimizer.exe
   发生的其他修改。
 - 项目没有提供可复现的 FPS、帧时间或输入延迟基准。
 
+## 开发说明
+
+本项目由 AkiraNyx 主导，并在 OpenAI Codex 中使用 `GPT 5.6 Sol`、
+`GPT 5.6 Terra`、`GPT 5.5` 与 `Xiaomi Mimo V2.5 Pro` 协作开发。
+模型参与代码生成、分析、审查与迭代；AkiraNyx 负责需求定义、技术决策、
+测试验证、发布与维护。
+
 ## 许可
 
 Copyright (C) 2026 AkiraNyx
