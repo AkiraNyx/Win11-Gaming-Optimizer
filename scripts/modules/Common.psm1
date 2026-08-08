@@ -380,7 +380,7 @@ function Get-PowerSettingSnapshot {
         [Parameter(Mandatory = $true)][string]$Setting
     )
 
-    $result = Invoke-CheckedNativeCommand -FilePath "powercfg.exe" -ArgumentList @("/query", $SchemeGuid, $Subgroup, $Setting)
+    $result = Invoke-CheckedNativeCommand -FilePath "powercfg.exe" -ArgumentList @("/qh", $SchemeGuid, $Subgroup, $Setting)
     $text = (@($result.Output) | ForEach-Object { $_.ToString() }) -join "`n"
     $matches = [regex]::Matches($text, '(?i)0x([0-9a-f]{8})')
     if ($matches.Count -lt 2) { throw "Unable to read power setting $Setting" }

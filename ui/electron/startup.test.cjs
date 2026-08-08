@@ -15,8 +15,10 @@ const PRELOAD_PATH = path.join(ELECTRON_DIR, "preload.cjs");
 const SHELL_PATH = path.join(ELECTRON_DIR, "startup-shell.html");
 const SHELL_SCRIPT_PATH = path.join(ELECTRON_DIR, "startup-shell.js");
 const HEADER_PATH = path.join(ELECTRON_DIR, "..", "src", "components", "layout", "header.tsx");
+const API_PATH = path.join(ELECTRON_DIR, "..", "src", "lib", "api.ts");
 const SHELL_URL = pathToFileURL(SHELL_PATH).href;
 const STARTUP_CHANNEL = "win11optimizer:startup-state";
+const SESSION_TOKEN = "a".repeat(64);
 
 async function waitFor(predicate, timeoutMs = 1_000) {
   const deadline = Date.now() + timeoutMs;
@@ -36,11 +38,18 @@ async function runMain(options = {}) {
   class FakeWebContents extends EventEmitter {
     constructor() {
       super();
+      this.id = 42;
       this.url = "";
       this.mainFrame = { url: "", frameTreeNodeId: 1 };
       this.session = {
         setPermissionCheckHandler: (handler) => { this.permissionCheckHandler = handler; },
         setPermissionRequestHandler: (handler) => { this.permissionRequestHandler = handler; },
+        webRequest: {
+          onBeforeSendHeaders: (filter, handler) => {
+            this.beforeSendHeadersFilter = filter;
+            this.beforeSendHeadersHandler = handler;
+          },
+        },
       };
     }
 
@@ -117,7 +126,8 @@ async function runMain(options = {}) {
     events.push({ type: "start-server" });
     if (options.failServer) throw new Error("service failed");
     return {
-      url: "http://127.0.0.1:43123/#session=test",
+      url: `http://127.0.0.1:43123/#session=${SESSION_TOKEN}`,
+      sessionToken: SESSION_TOKEN,
       close: async () => { serverCloseCalls++; events.push({ type: "close-server" }); },
     };
   };
@@ -182,7 +192,30 @@ test("Electron startup shows the shell before starting the service and reuses on
   assert.equal(window.options.show, true);
   assert.equal(window.options.backgroundColor, "#0a0a0a");
   assert.equal(window.listenerCount("ready-to-show"), 0);
-  assert.deepEqual(window.loaded, [SHELL_URL, "http://127.0.0.1:43123/#session=test"]);
+  assert.deepEqual(window.loaded, [SHELL_URL, "http://127.0.0.1:43123/#startup"]);
+  assert.equal(window.webContents.beforeSendHeadersFilter.urls.length, 1);
+  assert.equal(
+    window.webContents.beforeSendHeadersFilter.urls[0],
+    "http://127.0.0.1:43123/api/*",
+  );
+
+  const injectHeaders = (details) => new Promise((resolve) => {
+    window.webContents.beforeSendHeadersHandler(details, resolve);
+  });
+  const mainWindowRequest = await injectHeaders({
+    webContentsId: window.webContents.id,
+    requestHeaders: { Accept: "application/json" },
+  });
+  assert.equal(mainWindowRequest.requestHeaders.Accept, "application/json");
+  assert.equal(mainWindowRequest.requestHeaders["X-Win11Opt-Session"], SESSION_TOKEN);
+  assert.equal(Object.keys(mainWindowRequest.requestHeaders).length, 2);
+  const otherWindowRequest = await injectHeaders({
+    webContentsId: window.webContents.id + 1,
+    requestHeaders: { Accept: "application/json" },
+  });
+  assert.equal(otherWindowRequest.requestHeaders.Accept, "application/json");
+  assert.equal(otherWindowRequest.requestHeaders["X-Win11Opt-Session"], undefined);
+  assert.equal(Object.keys(otherWindowRequest.requestHeaders).length, 1);
 
   const relevant = run.events
     .filter((event) => event.type === "load-file"
@@ -258,7 +291,7 @@ test("Electron startup failure remains in the shell", async () => {
 
 test("runtime initialization failure still hands off to the main interface", async () => {
   const run = await runMain({ failRuntime: true });
-  assert.deepEqual(run.windows[0].loaded, [SHELL_URL, "http://127.0.0.1:43123/#session=test"]);
+  assert.deepEqual(run.windows[0].loaded, [SHELL_URL, "http://127.0.0.1:43123/#startup"]);
   assert.equal(run.events.some((event) => event.type === "send"
     && event.channel === STARTUP_CHANNEL
     && event.state?.kind === "error"), false);
@@ -297,6 +330,38 @@ test("preload exposes only wrapped window and startup APIs", () => {
   assert.strictEqual(received, state);
   unsubscribe();
   assert.equal(listeners.has(STARTUP_CHANNEL), false);
+});
+
+test("renderer API authentication separates standalone and Electron sessions", async () => {
+  const source = fs.readFileSync(API_PATH, "utf8");
+  assert.doesNotMatch(source, /sessionStorage/);
+
+  const originalWindow = globalThis.window;
+  const originalFetch = globalThis.fetch;
+  let request;
+  try {
+    globalThis.window = {
+      location: { hash: `#session=${SESSION_TOKEN}` },
+    };
+    globalThis.fetch = async (...args) => { request = args; return { ok: true }; };
+    const standaloneApi = await import(`${pathToFileURL(API_PATH).href}?standalone`);
+    await standaloneApi.apiFetch("/api/status", { headers: { Accept: "application/json" } });
+    assert.equal(request[1].headers.get("Accept"), "application/json");
+    assert.equal(request[1].headers.get("X-Win11Opt-Session"), SESSION_TOKEN);
+
+    request = undefined;
+    globalThis.window = {
+      location: { hash: "#startup" },
+    };
+    const electronApi = await import(`${pathToFileURL(API_PATH).href}?electron`);
+    await electronApi.apiFetch("/api/status", { headers: { Accept: "application/json" } });
+    assert.equal(request[1].headers.Accept, "application/json");
+    assert.equal(request[1].headers["X-Win11Opt-Session"], undefined);
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("startup shell keeps progress and failure states accessible", () => {
@@ -370,7 +435,7 @@ test("preload keeps the startup handoff visible until initial status loading set
     observe() {}
   }
   const window = {
-    location: { protocol: "http:", hostname: "127.0.0.1", hash: `#session=${"a".repeat(64)}` },
+    location: { protocol: "http:", hostname: "127.0.0.1", hash: "#startup" },
     matchMedia: () => ({ matches: false }),
     requestAnimationFrame: (callback) => { callback(); return 1; },
   };

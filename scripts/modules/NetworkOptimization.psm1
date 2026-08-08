@@ -64,6 +64,7 @@ function Disable-TrackedAdapterPowerManagement {
     $changeId = Register-OptimizationChange -Kind "NicPowerManagement" -Target ([string]$Adapter.Name) -OriginalValue ([PSCustomObject]$original) -NewValue "Disabled" -Description "Disable adapter power-saving features"
     Complete-TrackedOperation -ChangeId $changeId -Action {
         Disable-NetAdapterPowerManagement -Name $Adapter.Name -ErrorAction Stop
+        Wait-NetAdapterPowerManagementReady -Name $Adapter.Name | Out-Null
     }
     return $true
 }
@@ -87,6 +88,7 @@ function Enable-TrackedAdapterPowerManagement {
     $changeId = Register-OptimizationChange -Kind "NicPowerManagement" -Target ([string]$Adapter.Name) -OriginalValue ([PSCustomObject]$original) -NewValue "Enabled" -Description "Enable adapter power-saving features"
     Complete-TrackedOperation -ChangeId $changeId -Action {
         Enable-NetAdapterPowerManagement -Name $Adapter.Name -ErrorAction Stop
+        Wait-NetAdapterPowerManagementReady -Name $Adapter.Name | Out-Null
     }
     return $true
 }

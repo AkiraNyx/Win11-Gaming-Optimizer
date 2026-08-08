@@ -587,6 +587,36 @@ function Invoke-OptimizationManifestRestore {
     }
 }
 
+function Wait-NetAdapterPowerManagementReady {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [ValidateRange(0, 300)][int]$TimeoutSeconds = 30,
+        [ValidateRange(1, 5000)][int]$PollIntervalMilliseconds = 250
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $lastStatus = $null
+    $lastError = $null
+    do {
+        try {
+            $adapter = Get-NetAdapter -Name $Name -ErrorAction Stop
+            $lastStatus = [string]$adapter.Status
+            if ($lastStatus -eq "Up") {
+                return (Get-NetAdapterPowerManagement -Name $Name -ErrorAction Stop)
+            }
+        } catch {
+            $lastError = $_.Exception.Message
+        }
+
+        if ([DateTime]::UtcNow -ge $deadline) { break }
+        Start-Sleep -Milliseconds $PollIntervalMilliseconds
+    } while ($true)
+
+    $details = if ($lastError) { " Last error: $lastError" } elseif ($lastStatus) { " Last status: $lastStatus" } else { "" }
+    throw "Timed out waiting for network adapter '$Name' to return to Up with readable power-management settings after $TimeoutSeconds seconds.$details"
+}
+
 function Invoke-OperationRestore {
     param([Parameter(Mandatory = $true)]$Operation)
 
@@ -634,7 +664,7 @@ function Invoke-OperationRestore {
             if ($null -ne $Operation.OriginalValue.DC) {
                 Invoke-CheckedNativeCommand -FilePath "powercfg.exe" -ArgumentList @("/setdcvalueindex", $scheme, $subgroup, $setting, [string]$Operation.OriginalValue.DC) | Out-Null
             }
-            $updated = Invoke-CheckedNativeCommand -FilePath "powercfg.exe" -ArgumentList @("/query", $scheme, $subgroup, $setting)
+            $updated = Invoke-CheckedNativeCommand -FilePath "powercfg.exe" -ArgumentList @("/qh", $scheme, $subgroup, $setting)
             $updatedText = (@($updated.Output) | ForEach-Object { $_.ToString() }) -join "`n"
             $indexes = [regex]::Matches($updatedText, '(?i)0x([0-9a-f]{8})')
             if ($indexes.Count -lt 2) { throw "Unable to verify restored power setting: $setting" }
@@ -775,7 +805,7 @@ function Invoke-OperationRestore {
             }
             if ($parameters.Count -le 2) { throw "No restorable adapter power settings were recorded" }
             Set-NetAdapterPowerManagement @parameters
-            $updated = Get-NetAdapterPowerManagement -Name ([string]$Operation.Target) -ErrorAction Stop
+            $updated = Wait-NetAdapterPowerManagementReady -Name ([string]$Operation.Target)
             foreach ($propertyName in $allowedProperties) {
                 if (-not $parameters.ContainsKey($propertyName)) { continue }
                 if ([string]$updated.PSObject.Properties[$propertyName].Value -ne [string]$parameters[$propertyName]) {
@@ -826,4 +856,4 @@ function Restore-OptimizationStateChanges {
     }
 }
 
-Export-ModuleMember -Function Initialize-OptimizationChangeTracker, Set-OptimizationChangeSession, Clear-OptimizationTrackedChanges, Add-OptimizationSessionError, Save-OptimizationChangeJournal, Test-OptimizationChangeJournalHealthy, Get-OptimizationChangeManifest, Add-RegistryChangeRecord, Add-ServiceChangeRecord, Register-OptimizationChange, Set-OptimizationChangeResult, Get-TrackedRegistryChanges, Get-TrackedServiceChanges, Get-TrackedOperations, Read-OptimizationChangeManifest, Get-OptimizationManifestRestoreState, Set-OptimizationManifestStatus, Set-OptimizationChangeRecordRestored, Invoke-TrackedRestoreRecords, Invoke-OptimizationManifestRestore, Restore-OptimizationStateChanges
+Export-ModuleMember -Function Initialize-OptimizationChangeTracker, Set-OptimizationChangeSession, Clear-OptimizationTrackedChanges, Add-OptimizationSessionError, Save-OptimizationChangeJournal, Test-OptimizationChangeJournalHealthy, Get-OptimizationChangeManifest, Add-RegistryChangeRecord, Add-ServiceChangeRecord, Register-OptimizationChange, Set-OptimizationChangeResult, Get-TrackedRegistryChanges, Get-TrackedServiceChanges, Get-TrackedOperations, Read-OptimizationChangeManifest, Get-OptimizationManifestRestoreState, Set-OptimizationManifestStatus, Set-OptimizationChangeRecordRestored, Invoke-TrackedRestoreRecords, Invoke-OptimizationManifestRestore, Wait-NetAdapterPowerManagementReady, Restore-OptimizationStateChanges

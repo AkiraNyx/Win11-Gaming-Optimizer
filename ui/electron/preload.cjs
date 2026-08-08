@@ -11,7 +11,7 @@ const IPC = Object.freeze({
   startupState: "win11optimizer:startup-state",
 });
 
-const INITIAL_SESSION_PATTERN = /^#session=[0-9a-f]{64}$/i;
+const STARTUP_HASH = "#startup";
 const STARTUP_HANDOFF_ID = "win11optimizer-startup-handoff";
 
 function createElement(tagName, className, text) {
@@ -25,7 +25,7 @@ function installStartupHandoff() {
   if (typeof window === "undefined" || typeof document === "undefined") return;
   if (window.location.protocol !== "http:"
     || window.location.hostname !== "127.0.0.1"
-    || !INITIAL_SESSION_PATTERN.test(window.location.hash)) return;
+    || window.location.hash !== STARTUP_HASH) return;
 
   const mount = () => {
     if (!document.body || document.getElementById(STARTUP_HANDOFF_ID)) return;

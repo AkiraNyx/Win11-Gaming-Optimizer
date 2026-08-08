@@ -90,6 +90,20 @@ function configureWebContents(window) {
   webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
 }
 
+function configureApiSessionHeader(window, origin, sessionToken) {
+  const { webContents } = window;
+  webContents.session.webRequest.onBeforeSendHeaders(
+    { urls: [`${origin}/api/*`] },
+    (details, callback) => {
+      const requestHeaders = { ...details.requestHeaders };
+      if (details.webContentsId === webContents.id) {
+        requestHeaders["X-Win11Opt-Session"] = sessionToken;
+      }
+      callback({ requestHeaders });
+    },
+  );
+}
+
 function sendStartupState(state) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC.startupState, state);
@@ -229,12 +243,14 @@ async function startApplication() {
   if (quitting || window.isDestroyed()) return;
 
   sendStartupStage(2);
-  const url = setTrustedLocalUrl(serverRuntime.url);
+  const url = new URL(setTrustedLocalUrl(serverRuntime.url));
+  configureApiSessionHeader(window, url.origin, serverRuntime.sessionToken);
+  url.hash = "startup";
   await initializeRuntime().catch(() => undefined);
   if (quitting || window.isDestroyed()) return;
 
   sendStartupStage(3);
-  await window.loadURL(url);
+  await window.loadURL(url.href);
 }
 
 if (!app.requestSingleInstanceLock()) {

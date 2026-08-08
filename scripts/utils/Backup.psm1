@@ -38,6 +38,58 @@ function Resolve-BackupChildPath {
     return $candidate
 }
 
+function Get-RegistryValueInventory {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$RegistryPath)
+
+    $root = Get-Item -LiteralPath $RegistryPath -ErrorAction Stop
+    $rootName = [string]$root.Name
+    $keys = @($root) + @(Get-ChildItem -LiteralPath $RegistryPath -Recurse -ErrorAction Stop)
+    return @($keys | ForEach-Object {
+        [PSCustomObject]@{
+            Key = ([string]$_.Name).Substring($rootName.Length).TrimStart('\')
+            Values = @($_.GetValueNames())
+        }
+    })
+}
+
+function Remove-RegistryValuesNotInInventory {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$RegistryPath,
+        [Parameter(Mandatory = $true)]$ValueInventory
+    )
+
+    $inventoryByKey = @{}
+    foreach ($keyInventory in @($ValueInventory)) {
+        $savedValues = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($valueName in @($keyInventory.Values)) { $savedValues.Add([string]$valueName) | Out-Null }
+        $inventoryByKey[[string]$keyInventory.Key] = $savedValues
+    }
+    if (-not $inventoryByKey.ContainsKey("")) { throw "Registry value inventory is missing its root key: $RegistryPath" }
+
+    foreach ($currentKey in @(Get-RegistryValueInventory -RegistryPath $RegistryPath)) {
+        $relativePath = [string]$currentKey.Key
+        if ($inventoryByKey.ContainsKey($relativePath)) {
+            $savedValues = $inventoryByKey[$relativePath]
+        } else {
+            $savedValues = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        }
+        $keyPath = if ([string]::IsNullOrEmpty($relativePath)) { $RegistryPath } else { Join-Path $RegistryPath $relativePath }
+        $nativePath = $keyPath -replace '^HKLM:\\', 'HKLM\' -replace '^HKCU:\\', 'HKCU\'
+        foreach ($valueName in @($currentKey.Values)) {
+            $valueName = [string]$valueName
+            if ($savedValues.Contains($valueName)) { continue }
+            $arguments = if ([string]::IsNullOrEmpty($valueName)) {
+                @("delete", $nativePath, "/ve", "/f")
+            } else {
+                @("delete", $nativePath, "/v", $valueName, "/f")
+            }
+            Invoke-CheckedNativeCommand -FilePath "reg.exe" -ArgumentList $arguments | Out-Null
+        }
+    }
+}
+
 function New-OptimizationBackup {
     [CmdletBinding()]
     param(
@@ -123,8 +175,9 @@ function New-OptimizationBackup {
         $exportPath = Join-Path $backupDirectory $fileName
         $nativePath = $path -replace '^HKLM:\\', 'HKLM\' -replace '^HKCU:\\', 'HKCU\'
         try {
+            $valueInventory = @(Get-RegistryValueInventory -RegistryPath $path)
             Invoke-CheckedNativeCommand -FilePath "reg.exe" -ArgumentList @("export", $nativePath, $exportPath, "/y") | Out-Null
-            $registryExports.Add([PSCustomObject]@{ RegistryPath = $path; File = $fileName }) | Out-Null
+            $registryExports.Add([PSCustomObject]@{ RegistryPath = $path; File = $fileName; ValueInventory = $valueInventory }) | Out-Null
         } catch {
             $errors.Add("Registry export failed for $path`: $($_.Exception.Message)") | Out-Null
         }
@@ -253,6 +306,9 @@ function Restore-OptimizationBackup {
                 $file = Resolve-BackupChildPath -BackupDirectory $backup.Directory -RelativePath ([string]$entry.File)
                 if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing registry export: $($entry.File)" }
                 Invoke-CheckedNativeCommand -FilePath "reg.exe" -ArgumentList @("import", $file) | Out-Null
+                if ($entry.PSObject.Properties.Name -contains "ValueInventory") {
+                    Remove-RegistryValuesNotInInventory -RegistryPath ([string]$entry.RegistryPath) -ValueInventory $entry.ValueInventory
+                }
                 $restored++
             } catch {
                 $errors.Add($_.Exception.Message) | Out-Null
