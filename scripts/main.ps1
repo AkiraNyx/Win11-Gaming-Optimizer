@@ -359,7 +359,7 @@ try {
 
 Write-LogSection "Creating Pre-Apply Backup"
 try {
-    $backupResult = New-OptimizationBackup -OutputDirectory $changesDirectory -RestorePointDescription "Win11Opt-PreApply-$timestamp"
+    $backupResult = New-OptimizationBackup -OutputDirectory $changesDirectory -RestorePointDescription "Win11Opt-PreApply-$timestamp" -PlannedItems $plannedItems
     foreach ($warning in @($backupResult.Warnings)) { Write-LogEntry $warning -Level "WARN" }
     if (-not $backupResult.Success) {
         foreach ($backupError in @($backupResult.Errors)) {

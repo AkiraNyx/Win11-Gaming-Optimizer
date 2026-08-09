@@ -7,9 +7,24 @@ function Assert-Equal {
     if ($Actual -ne $Expected) { throw "$Message (expected: $Expected; actual: $Actual)" }
 }
 
+function Assert-Match {
+    param([string]$Actual, [string]$Pattern, [string]$Message)
+    if ($Actual -notmatch $Pattern) { throw "$Message (value: $Actual)" }
+}
+
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+$backupPath = Join-Path $repositoryRoot "scripts\utils\Backup.psm1"
+$mainPath = Join-Path $repositoryRoot "scripts\main.ps1"
 Import-Module -Name (Join-Path $repositoryRoot "scripts\utils\NativeCommand.psm1") -Force
-Import-Module -Name (Join-Path $repositoryRoot "scripts\utils\Backup.psm1") -Force
+Import-Module -Name $backupPath -Force
+
+$backupSource = Get-Content -LiteralPath $backupPath -Raw -Encoding UTF8
+$mainSource = Get-Content -LiteralPath $mainPath -Raw -Encoding UTF8
+Assert-Match $backupSource 'Registry inventory failed for \$path' "Registry inventory failures must not be reported as export failures"
+Assert-Match $backupSource 'Registry value snapshot failed for display adapters' "Targeted GPU snapshot failures must identify their stage"
+Assert-Match $backupSource 'Registry export failed for \$path' "Registry export failures must retain their own stage"
+Assert-Match $backupSource 'Backup manifest write failed for \$Path' "Manifest persistence failures must identify their stage"
+Assert-Match $mainSource 'New-OptimizationBackup[^\r\n]+-PlannedItems \$plannedItems' "Pre-apply backup must receive the final planned items"
 
 $testId = [guid]::NewGuid().ToString("N")
 $registryPath = "HKCU:\Software\Win11OptimizerTests\$testId"
@@ -74,6 +89,106 @@ try {
     $legacyResult = Restore-OptimizationBackup -BackupPath $backupDirectory -SkipServices -SkipPower
     Assert-Equal $legacyResult.Success $true "A legacy schema 2 registry backup must remain restorable"
     Assert-Equal (@((Get-Item -LiteralPath $registryPath).GetValueNames()) -contains "LegacyAdded") $true "A legacy backup without inventory must retain merge behavior"
+
+    $powerOnlyPlan = @([PSCustomObject]@{ Category = "powerManagement"; Item = "ultimatePerformancePlan" })
+    $powerOnlySnapshots = @(& $backupModule {
+        param($Plan)
+        function Test-Path { [CmdletBinding()] param([string]$LiteralPath) throw "Unexpected display-adapter registry access" }
+        try {
+            Get-GpuRegistryValueSnapshotsForPlan -PlannedItems $Plan
+        } finally {
+            Remove-Item Function:\Test-Path -Force -ErrorAction SilentlyContinue
+        }
+    } $powerOnlyPlan)
+    Assert-Equal $powerOnlySnapshots.Count 0 "A power-only backup must not access the display-adapter registry branch"
+
+    $nvidiaPlan = @([PSCustomObject]@{ Category = "gpuOptimization"; Item = "nvidiaOptimize" })
+    $requiredSnapshotError = ""
+    try {
+        $null = & $backupModule {
+            param($Plan)
+            function Test-Path { [CmdletBinding()] param([string]$LiteralPath) throw "Simulated protected registry access" }
+            try {
+                Get-GpuRegistryValueSnapshotsForPlan -PlannedItems $Plan
+            } finally {
+                Remove-Item Function:\Test-Path -Force -ErrorAction SilentlyContinue
+            }
+        } $nvidiaPlan
+    } catch {
+        $requiredSnapshotError = $_.Exception.Message
+    }
+    Assert-Match $requiredSnapshotError ".+" "A required GPU registry snapshot read failure must remain fatal"
+
+    $displayClassPath = Join-Path $registryPath "DisplayClass"
+    $nvidiaAdapterPath = Join-Path $displayClassPath "0000"
+    $nestedNumericPath = Join-Path $nvidiaAdapterPath "0001"
+    $amdAdapterPath = Join-Path $displayClassPath "0002"
+    New-Item -Path $nvidiaAdapterPath -Force | Out-Null
+    New-ItemProperty -LiteralPath $nvidiaAdapterPath -Name "DriverDesc" -Value "NVIDIA Test Adapter" -PropertyType String | Out-Null
+    New-ItemProperty -LiteralPath $nvidiaAdapterPath -Name "PerfLevelSrc" -Value 4369 -PropertyType DWord | Out-Null
+    New-Item -Path $nestedNumericPath -Force | Out-Null
+    New-ItemProperty -LiteralPath $nestedNumericPath -Name "DriverDesc" -Value "NVIDIA Nested Driver Key" -PropertyType String | Out-Null
+    New-ItemProperty -LiteralPath $nestedNumericPath -Name "PerfLevelSrc" -Value 1 -PropertyType DWord | Out-Null
+    New-Item -Path $amdAdapterPath -Force | Out-Null
+    New-ItemProperty -LiteralPath $amdAdapterPath -Name "DriverDesc" -Value "AMD Test Adapter" -PropertyType String | Out-Null
+    New-ItemProperty -LiteralPath $amdAdapterPath -Name "GpuWorkload" -Value 1 -PropertyType DWord | Out-Null
+
+    $gpuSnapshots = @(& $backupModule {
+        param($Plan, $ClassPath)
+        Get-GpuRegistryValueSnapshotsForPlan -PlannedItems $Plan -ClassPath $ClassPath
+    } $nvidiaPlan $displayClassPath)
+    Assert-Equal $gpuSnapshots.Count 5 "NVIDIA backup must snapshot exactly the five values that its optimization can write"
+    Assert-Equal (@($gpuSnapshots | ForEach-Object { $_.Metadata.Path } | Select-Object -Unique) -join ",") $nvidiaAdapterPath "GPU backup must inspect only direct numeric adapter keys"
+    Assert-Equal (@($gpuSnapshots | ForEach-Object { $_.Metadata.Name } | Sort-Object) -join ",") "EnableUlps,PerfLevelSrc,PowerMizerEnable,PowerMizerLevel,PowerMizerLevelAC" "GPU backup must stay within the existing registry whitelist"
+
+    $amdPlan = @([PSCustomObject]@{ Category = "gpuOptimization"; Item = "amdOptimize" })
+    $amdSnapshots = @(& $backupModule {
+        param($Plan, $ClassPath)
+        Get-GpuRegistryValueSnapshotsForPlan -PlannedItems $Plan -ClassPath $ClassPath
+    } $amdPlan $displayClassPath)
+    Assert-Equal $amdSnapshots.Count 2 "AMD backup must snapshot exactly the two values that its optimization can write"
+    Assert-Equal (@($amdSnapshots | ForEach-Object { $_.Metadata.Path } | Select-Object -Unique) -join ",") $amdAdapterPath "AMD backup must target only the matching direct adapter key"
+    Assert-Equal (@($amdSnapshots | ForEach-Object { $_.Metadata.Name } | Sort-Object) -join ",") "EnableUlps,GpuWorkload" "AMD backup must stay within the existing registry whitelist"
+
+    $fullGpuSnapshots = @(& $backupModule {
+        param($ClassPath)
+        Get-GpuRegistryValueSnapshotsForPlan -FullBackup -ClassPath $ClassPath
+    } $displayClassPath)
+    Assert-Equal $fullGpuSnapshots.Count 7 "A standalone full backup must include both vendor-specific snapshot sets"
+
+    $snapshotBackupDirectory = Join-Path $testRoot "backup_gpu_value_snapshots"
+    [IO.Directory]::CreateDirectory($snapshotBackupDirectory) | Out-Null
+    $snapshotManifest = [PSCustomObject][ordered]@{
+        SchemaVersion = 2
+        Tool = "Win11Optimizer"
+        Kind = "PreApplyBackup"
+        BackupId = "backup_gpu_value_snapshots"
+        RegistryExports = @()
+        RegistryValueSnapshots = @($gpuSnapshots)
+        ServicesSnapshot = $null
+        PowerScheme = $null
+    }
+    [IO.File]::WriteAllText(
+        (Join-Path $snapshotBackupDirectory "backup_manifest.json"),
+        ($snapshotManifest | ConvertTo-Json -Depth 8),
+        (New-Object Text.UTF8Encoding($false))
+    )
+    $snapshotRestoreCalls = [System.Collections.ArrayList]::new()
+    $snapshotRestoreResult = & $backupModule {
+        param($BackupPath, $Calls)
+        function Restore-RegistryChangeRecord {
+            param($Change)
+            $Calls.Add("$($Change.Metadata.Path)|$($Change.Metadata.Name)") | Out-Null
+        }
+        try {
+            Restore-OptimizationBackup -BackupPath $BackupPath -SkipServices -SkipPower
+        } finally {
+            Remove-Item Function:\Restore-RegistryChangeRecord -Force -ErrorAction SilentlyContinue
+        }
+    } $snapshotBackupDirectory $snapshotRestoreCalls
+    Assert-Equal $snapshotRestoreResult.Success $true "A schema 2 backup with targeted registry snapshots must restore successfully"
+    Assert-Equal $snapshotRestoreResult.RestoredCount 5 "Every targeted GPU registry value must be restored"
+    Assert-Equal $snapshotRestoreCalls.Count 5 "Targeted snapshots must use the allowlisted registry restore path"
 
     Write-Output "Backup registry regression tests passed"
 } finally {

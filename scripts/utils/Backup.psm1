@@ -1,6 +1,7 @@
 #Requires -Version 5.1
 
 Import-Module (Join-Path $PSScriptRoot "NativeCommand.psm1")
+Import-Module (Join-Path $PSScriptRoot "Registry.psm1")
 Import-Module (Join-Path $PSScriptRoot "RestorePoint.psm1")
 
 function Write-BackupJson {
@@ -23,8 +24,12 @@ function Write-BackupJson {
 
 function Save-BackupManifest {
     param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)]$Manifest)
-    $Manifest.UpdatedAt = [DateTime]::UtcNow.ToString("o")
-    Write-BackupJson -Path $Path -Value $Manifest
+    try {
+        $Manifest.UpdatedAt = [DateTime]::UtcNow.ToString("o")
+        Write-BackupJson -Path $Path -Value $Manifest
+    } catch {
+        throw "Backup manifest write failed for $Path`: $($_.Exception.Message)"
+    }
 }
 
 function Resolve-BackupChildPath {
@@ -51,6 +56,59 @@ function Get-RegistryValueInventory {
             Values = @($_.GetValueNames())
         }
     })
+}
+
+function Get-GpuRegistryValueSnapshotsForPlan {
+    [CmdletBinding()]
+    param(
+        [object[]]$PlannedItems = @(),
+        [string]$ClassPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}",
+        [switch]$FullBackup
+    )
+
+    $gpuItems = if ($FullBackup) {
+        @("nvidiaOptimize", "amdOptimize")
+    } else {
+        @($PlannedItems | Where-Object {
+            $_.Category -eq "gpuOptimization" -and @("nvidiaOptimize", "amdOptimize") -contains $_.Item
+        } | ForEach-Object { [string]$_.Item } | Select-Object -Unique)
+    }
+    if ($gpuItems.Count -eq 0) { return @() }
+    if (-not (Test-Path -LiteralPath $ClassPath -ErrorAction Stop)) { return @() }
+
+    $snapshots = [System.Collections.ArrayList]::new()
+    $adapters = @(Get-ChildItem -LiteralPath $ClassPath -ErrorAction Stop | Where-Object { $_.PSChildName -match "^\d{4}$" })
+    foreach ($adapter in $adapters) {
+        $adapterPath = Join-Path $ClassPath $adapter.PSChildName
+        $description = (Get-ItemProperty -LiteralPath $adapterPath -Name "DriverDesc" -ErrorAction SilentlyContinue).DriverDesc
+        if (-not $description) { continue }
+
+        $valueNames = @()
+        if ($gpuItems -contains "nvidiaOptimize" -and $description -match "NVIDIA|GeForce") {
+            $valueNames += @("PerfLevelSrc", "PowerMizerEnable", "PowerMizerLevel", "PowerMizerLevelAC", "EnableUlps")
+        }
+        if ($gpuItems -contains "amdOptimize" -and $description -match "AMD|Radeon") {
+            $valueNames += @("GpuWorkload", "EnableUlps")
+        }
+        if ($valueNames.Count -eq 0) { continue }
+
+        $key = Get-Item -LiteralPath $adapterPath -ErrorAction Stop
+        $existingValueNames = @($key.GetValueNames())
+        foreach ($valueName in @($valueNames | Select-Object -Unique)) {
+            $valueExists = $existingValueNames -contains $valueName
+            $snapshots.Add([PSCustomObject]@{
+                OriginalExists = $valueExists
+                OriginalValue = if ($valueExists) { $key.GetValue($valueName, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) } else { $null }
+                Metadata = [PSCustomObject]@{
+                    Path = $adapterPath
+                    Name = $valueName
+                    OriginalType = if ($valueExists) { $key.GetValueKind($valueName).ToString() } else { $null }
+                    OriginalKeyExists = $true
+                }
+            }) | Out-Null
+        }
+    }
+    return @($snapshots.ToArray())
 }
 
 function Remove-RegistryValuesNotInInventory {
@@ -94,7 +152,8 @@ function New-OptimizationBackup {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$OutputDirectory,
-        [string]$RestorePointDescription
+        [string]$RestorePointDescription,
+        [AllowEmptyCollection()][object[]]$PlannedItems
     )
 
     $outputFullPath = [IO.Path]::GetFullPath($OutputDirectory)
@@ -126,6 +185,7 @@ function New-OptimizationBackup {
         RestorePointSequenceNumber = $null
         RestorePointDescription = $RestorePointDescription
         RegistryExports = @()
+        RegistryValueSnapshots = @()
         ServicesSnapshot = $null
         PowerScheme = $null
         DiagnosticSnapshots = @()
@@ -155,7 +215,6 @@ function New-OptimizationBackup {
         "HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl",
         "HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl",
         "HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers",
-        "HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}",
         "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces",
         "HKCU:\Control Panel\Desktop\WindowMetrics",
         "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer",
@@ -176,6 +235,11 @@ function New-OptimizationBackup {
         $nativePath = $path -replace '^HKLM:\\', 'HKLM\' -replace '^HKCU:\\', 'HKCU\'
         try {
             $valueInventory = @(Get-RegistryValueInventory -RegistryPath $path)
+        } catch {
+            $errors.Add("Registry inventory failed for $path`: $($_.Exception.Message)") | Out-Null
+            continue
+        }
+        try {
             Invoke-CheckedNativeCommand -FilePath "reg.exe" -ArgumentList @("export", $nativePath, $exportPath, "/y") | Out-Null
             $registryExports.Add([PSCustomObject]@{ RegistryPath = $path; File = $fileName; ValueInventory = $valueInventory }) | Out-Null
         } catch {
@@ -183,6 +247,15 @@ function New-OptimizationBackup {
         }
     }
     $manifest.RegistryExports = @($registryExports.ToArray())
+    try {
+        if ($PSBoundParameters.ContainsKey("PlannedItems")) {
+            $manifest.RegistryValueSnapshots = @(Get-GpuRegistryValueSnapshotsForPlan -PlannedItems $PlannedItems)
+        } else {
+            $manifest.RegistryValueSnapshots = @(Get-GpuRegistryValueSnapshotsForPlan -FullBackup)
+        }
+    } catch {
+        $errors.Add("Registry value snapshot failed for display adapters: $($_.Exception.Message)") | Out-Null
+    }
     Save-BackupManifest -Path $manifestPath -Manifest $manifest
 
     try {
@@ -312,6 +385,16 @@ function Restore-OptimizationBackup {
                 $restored++
             } catch {
                 $errors.Add($_.Exception.Message) | Out-Null
+            }
+        }
+        if ($backup.Manifest.PSObject.Properties.Name -contains "RegistryValueSnapshots") {
+            foreach ($snapshot in @($backup.Manifest.RegistryValueSnapshots)) {
+                try {
+                    Restore-RegistryChangeRecord -Change $snapshot
+                    $restored++
+                } catch {
+                    $errors.Add("Registry value snapshot restore failed for $($snapshot.Metadata.Path)\$($snapshot.Metadata.Name): $($_.Exception.Message)") | Out-Null
+                }
             }
         }
     }
