@@ -254,7 +254,7 @@ function Get-SystemStatus {
     $disableDot3Name = Get-RegistryValue "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" "NtfsDisable8dot3NameCreation"
     $status.storageOptimization.disableDot3Name = @{ current = ($disableDot3Name -eq 1); description = if ($disableDot3Name -eq 1) { "8.3 short names disabled (optimized)" } else { "8.3 short names enabled (default)" } }
 
-    $computerSystem = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
+    $computerSystem = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
     $isPagefileAutomatic = ($computerSystem -and [bool]$computerSystem.AutomaticManagedPagefile)
     $status.storageOptimization.optimizePagefile = @{ current = [bool]$isPagefileAutomatic; description = if ($isPagefileAutomatic) { "Pagefile: system-managed (optimized)" } else { "Pagefile: manually configured" } }
 
@@ -681,7 +681,7 @@ function Get-SystemStatus {
     $status.storageOptimization.disableHibernation = New-SystemItemStatus boolean $hibernationValue $hibernationAvailable
     $status.storageOptimization.disableLastAccess = New-SystemItemStatus enum $(if ($null -eq $disableLastAccess) { $null } else { [int]([int64]$disableLastAccess -band 3) }) ($null -ne $disableLastAccess)
     $status.storageOptimization.disableDot3Name = New-SystemItemStatus enum $(if ($null -eq $disableDot3Name) { $null } else { [int]$disableDot3Name }) ($null -ne $disableDot3Name)
-    $pagefileSettings = @(Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue)
+    $pagefileSettings = @(Get-CimInstance Win32_PageFileSetting -ErrorAction Stop)
     $pagefileValue = if (-not $computerSystem) { $null } elseif ($isPagefileAutomatic) { "systemManaged" } elseif ($pagefileSettings.Count -eq 0) { "disabled" } else { "custom" }
     $status.storageOptimization.optimizePagefile = New-SystemItemStatus enum $pagefileValue ($null -ne $computerSystem)
     $status.storageOptimization.disableSearchIndex = New-SystemItemStatus diagnostic $(if ($wsearchSvc) { $wsearchSvc.StartType.ToString() } else { $null }) ([bool]$wsearchSvc) "已合并到「Windows Search 索引」服务项"

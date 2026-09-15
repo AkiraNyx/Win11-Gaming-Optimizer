@@ -98,6 +98,15 @@ function Get-RecordProperty {
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $utilsPath = Join-Path $repositoryRoot "scripts\utils"
+$changeTrackingSource = Get-Content -LiteralPath (Join-Path $utilsPath "ChangeTracking.psm1") -Raw
+$storageSource = Get-Content -LiteralPath (Join-Path $repositoryRoot "scripts\modules\StorageOptimization.psm1") -Raw
+$restoreSource = Get-Content -LiteralPath (Join-Path $repositoryRoot "scripts\restore.ps1") -Raw
+$uninstallSource = Get-Content -LiteralPath (Join-Path $repositoryRoot "scripts\uninstall.ps1") -Raw
+Assert-Match $changeTrackingSource 'Get-CimInstance Win32_PageFileSetting -ErrorAction Stop' "Page file restore must fail when page file inventory cannot be read"
+Assert-Match $storageSource 'Get-PagefileSettingSnapshot' "Page file optimization must use the strict snapshot helper"
+Assert-Match $restoreSource 'Ignoring invalid change manifest' "Automatic restore discovery must isolate invalid change manifests"
+Assert-Match $restoreSource ([regex]::Escape('changes_\d{8}_\d{6}')) "Automatic restore discovery must ignore stray change filenames"
+Assert-Match $uninstallSource ([regex]::Escape('changes_\d{8}_\d{6}')) "Uninstall discovery must ignore stray change filenames"
 Import-Module -Name (Join-Path $utilsPath "ChangeTracking.psm1") -Force
 Import-Module -Name (Join-Path $utilsPath "NativeCommand.psm1") -Force
 Import-Module -Name (Join-Path $utilsPath "Registry.psm1") -Force
@@ -415,6 +424,58 @@ try {
     Assert-Match $limitedRestorePoint.Message "last 24 hours" "The restore-point frequency warning must explain the 24-hour limit"
 
     $changeTrackingModule = Get-Module ChangeTracking
+    $pagefileState = @{ AutomaticManagedPagefile = $false; Settings = [System.Collections.ArrayList]::new() }
+    $pagefileState.Settings.Add([PSCustomObject]@{ Name = "C:\pagefile.sys"; InitialSize = 1024; MaximumSize = 2048 }) | Out-Null
+    $pagefileOperation = New-TestRecord -Id "pagefile-exact-restore" -Sequence 1 -Kind "PageFileConfiguration" -Status "Applied" -OriginalValue ([PSCustomObject]@{ AutomaticManagedPagefile = $false; Settings = @() })
+    $pagefileRemoveCalls = [System.Collections.ArrayList]::new()
+    & $changeTrackingModule {
+        param($State, $Operation, $RemoveCalls)
+        function Get-CimInstance {
+            [CmdletBinding()]
+            param([Parameter(Position = 0)][string]$ClassName)
+            switch ($ClassName) {
+                "Win32_ComputerSystem" { return [PSCustomObject]@{ AutomaticManagedPagefile = $State.AutomaticManagedPagefile } }
+                "Win32_PageFileSetting" { return @($State.Settings.ToArray()) }
+                default { throw "Unexpected CIM class: $ClassName" }
+            }
+        }
+        function Set-CimInstance {
+            [CmdletBinding()]
+            param(
+                [Parameter(ValueFromPipeline = $true)]$InputObject,
+                [hashtable]$Property
+            )
+            process {
+                if ($Property.ContainsKey("AutomaticManagedPagefile")) { $State.AutomaticManagedPagefile = [bool]$Property.AutomaticManagedPagefile }
+                if ($Property.ContainsKey("InitialSize")) {
+                    $InputObject.InitialSize = [uint32]$Property.InitialSize
+                    $InputObject.MaximumSize = [uint32]$Property.MaximumSize
+                }
+                return $InputObject
+            }
+        }
+        function Remove-CimInstance {
+            [CmdletBinding()]
+            param([Parameter(ValueFromPipeline = $true)]$InputObject)
+            process {
+                $RemoveCalls.Add([string]$InputObject.Name) | Out-Null
+                [void]$State.Settings.Remove($InputObject)
+            }
+        }
+        function New-CimInstance {
+            [CmdletBinding()]
+            param([Parameter(Position = 0)][string]$ClassName, [hashtable]$Property)
+            $newSetting = [PSCustomObject]@{ Name = [string]$Property.Name; InitialSize = [uint32]$Property.InitialSize; MaximumSize = [uint32]$Property.MaximumSize }
+            $State.Settings.Add($newSetting) | Out-Null
+            return $newSetting
+        }
+        try { Invoke-OperationRestore -Operation $Operation } finally {
+            Remove-Item Function:\Get-CimInstance,Function:\Set-CimInstance,Function:\Remove-CimInstance,Function:\New-CimInstance -Force -ErrorAction SilentlyContinue
+        }
+    } $pagefileState $pagefileOperation $pagefileRemoveCalls
+    Assert-Equal $pagefileState.Settings.Count 0 "Page file restore must remove settings that were not present in the original snapshot"
+    Assert-Equal (($pagefileRemoveCalls.ToArray()) -join ",") "C:\pagefile.sys" "Page file restore must reconcile the current setting set"
+
     $originalPowerGuid = "381b4222-f694-41f0-9685-ff5bb260df2e"
     $createdPowerGuid = "11111111-2222-3333-4444-555555555555"
 
@@ -576,15 +637,63 @@ try {
             param([string]$Name, [string]$StartupType)
             $Calls.Add("$Name`:$StartupType") | Out-Null
         }
+        function Assert-TrustedBackupStorage { return $true }
         try {
             Restore-OptimizationBackup -BackupPath $BackupPath -SkipRegistry -SkipPower
         } finally {
-            Remove-Item Function:\Set-Service -Force -ErrorAction SilentlyContinue
+            Remove-Item Function:\Set-Service,Function:\Assert-TrustedBackupStorage -Force -ErrorAction SilentlyContinue
         }
     } $backupDirectory $serviceCalls
     Assert-Equal $backupResult.Success $true "A JSON service array must restore as individual service records"
     Assert-Equal $backupResult.RestoredCount 2 "Every service record in the snapshot must be restored"
     Assert-Equal (($serviceCalls.ToArray()) -join ",") "TestAutomatic:Automatic,TestManual:Manual" "Service names and startup modes must not be collapsed into arrays"
+
+    $unknownServiceDirectory = Join-Path $testRoot "backup_unknown_service"
+    [IO.Directory]::CreateDirectory($unknownServiceDirectory) | Out-Null
+    $unknownServiceManifest = [PSCustomObject][ordered]@{
+        SchemaVersion = 2
+        Tool = "Win11Optimizer"
+        Kind = "PreApplyBackup"
+        BackupId = "backup_unknown_service"
+        ServicesSnapshot = "services_snapshot.json"
+        RegistryExports = @()
+        PowerScheme = $null
+    }
+    Write-TestManifest -Path (Join-Path $unknownServiceDirectory "backup_manifest.json") -Manifest $unknownServiceManifest
+    [IO.File]::WriteAllText(
+        (Join-Path $unknownServiceDirectory "services_snapshot.json"),
+        (ConvertTo-Json -InputObject @([PSCustomObject]@{
+            Name = "TestUnknown"
+            StartMode = "Unknown"
+            StartValue = 0
+            DelayedAutoStartExists = $false
+            DelayedAutoStart = $false
+        }) -Depth 4),
+        (New-Object System.Text.UTF8Encoding($false))
+    )
+    $unknownServiceCalls = [System.Collections.ArrayList]::new()
+    $unknownServiceState = @{ Start = 0 }
+    $unknownServiceResult = & $backupModule {
+        param($BackupPath, $Calls, $State)
+        function Invoke-CheckedNativeCommand {
+            [CmdletBinding()]
+            param([string]$FilePath, [string[]]$ArgumentList)
+            $Calls.Add("$FilePath $($ArgumentList -join ' ')") | Out-Null
+            if ($ArgumentList[0] -eq "config") { $State.Start = switch ($ArgumentList[3]) { "boot" { 0 } "system" { 1 } "auto" { 2 } "demand" { 3 } "disabled" { 4 } } }
+            return [PSCustomObject]@{ Success = $true; ExitCode = 0; Output = @(); Command = $FilePath }
+        }
+        function Get-ItemProperty {
+            [CmdletBinding()]
+            param([string]$LiteralPath)
+            return [PSCustomObject]@{ Start = $State.Start }
+        }
+        function Assert-TrustedBackupStorage { return $true }
+        try { Restore-OptimizationBackup -BackupPath $BackupPath -SkipRegistry -SkipPower } finally {
+            Remove-Item Function:\Invoke-CheckedNativeCommand,Function:\Get-ItemProperty,Function:\Assert-TrustedBackupStorage -Force -ErrorAction SilentlyContinue
+        }
+    } $unknownServiceDirectory $unknownServiceCalls $unknownServiceState
+    Assert-Equal $unknownServiceResult.Success $true "A new backup must restore a raw startup value even when Win32_Service reports Unknown"
+    Assert-Equal (($unknownServiceCalls.ToArray()) -join ",") "sc.exe config TestUnknown start= boot" "Unknown service startup restore must use the raw SCM startup value"
 
     $savedPowerGuid = "457ef5b1-1387-4af3-aa84-d828d1e596f3"
     $powerFile = Join-Path $backupDirectory "active_power_scheme.pow"
@@ -606,10 +715,11 @@ try {
             }
             return [PSCustomObject]@{ Success = $true; ExitCode = 0; Output = $output; Command = $FilePath }
         }
+        function Assert-TrustedBackupStorage { return $true }
         try {
             Restore-OptimizationBackup -BackupPath $BackupPath -SkipRegistry -SkipServices
         } finally {
-            Remove-Item Function:\Invoke-CheckedNativeCommand -Force -ErrorAction SilentlyContinue
+            Remove-Item Function:\Invoke-CheckedNativeCommand,Function:\Assert-TrustedBackupStorage -Force -ErrorAction SilentlyContinue
         }
     } $backupDirectory $powerCalls $savedPowerGuid
     Assert-Equal $powerResult.Success $true "An existing saved power scheme must be reactivated"

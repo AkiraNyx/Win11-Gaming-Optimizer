@@ -167,6 +167,12 @@ test("backend safety behaviors", { timeout: 75_000 }, async (context) => {
     };
     fs.writeFileSync(changeManifestPath, JSON.stringify(appliedManifest), "utf8");
     assert.deepEqual(app.getRestoreAvailability(restoreAvailabilityDirectory), { available: true });
+    fs.writeFileSync(path.join(restoreAvailabilityDirectory, "changes_bad.json"), "not-json", "utf8");
+    assert.deepEqual(app.getRestoreAvailability(restoreAvailabilityDirectory), { available: true });
+    const malformedCanonicalPath = path.join(restoreAvailabilityDirectory, "changes_20260803_120001.json");
+    fs.writeFileSync(malformedCanonicalPath, "not-json", "utf8");
+    assert.deepEqual(app.getRestoreAvailability(restoreAvailabilityDirectory), { available: true, invalidCount: 1 });
+    fs.unlinkSync(malformedCanonicalPath);
     fs.writeFileSync(changeManifestPath, JSON.stringify({
       ...appliedManifest,
       Status: "Restored",

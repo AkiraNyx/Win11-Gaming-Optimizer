@@ -43,6 +43,7 @@ const DEFAULT_POWERSHELL_TIMEOUT_MS = 10 * 60 * 1000;
 const OPTIMIZE_TIMEOUT_MS = 30 * 60 * 1000;
 const PROCESS_TREE_KILL_TIMEOUT_MS = 5_000;
 const SNAPSHOT_PRESETS = new Set(["current", "conservative", "balanced", "extreme", "custom"]);
+const CHANGES_FILE_PATTERN = /^changes_\d{8}_\d{6}(?:_[0-9a-f]{8})?\.json$/i;
 
 let CONFIG_DIR = path.join(PROJECT_ROOT, "config", "output");
 let SCRIPTS_DIR = path.join(PROJECT_ROOT, "scripts");
@@ -904,7 +905,7 @@ function timestampFilePart(timestamp, includeMilliseconds = true) {
 }
 
 function resolveChangesFile(fileName) {
-  if (!/^changes_\d{8}_\d{6}(?:_[0-9a-f]{8})?\.json$/i.test(fileName)) throw new HttpError(400, "Invalid changes file");
+  if (!CHANGES_FILE_PATTERN.test(fileName)) throw new HttpError(400, "Invalid changes file");
   const resolved = path.resolve(CONFIG_DIR, fileName);
   if (!isPathInside(CONFIG_DIR, resolved) || !fs.existsSync(resolved)) throw new HttpError(404, "Changes file not found");
   return resolved;
@@ -923,9 +924,11 @@ function getRestoreAvailability(dataDirectory = CONFIG_DIR) {
   if (!fs.existsSync(dataDirectory)) return { available: false };
 
   const entries = fs.readdirSync(dataDirectory, { withFileTypes: true });
-  const restorableChanges = entries
-    .filter((entry) => entry.isFile() && /^changes_.*\.json$/i.test(entry.name))
-    .map((entry) => {
+  const restorableChanges = [];
+  let invalidCount = 0;
+  for (const entry of entries) {
+    if (!entry.isFile() || !CHANGES_FILE_PATTERN.test(entry.name)) continue;
+    try {
       const manifest = JSON.parse(fs.readFileSync(path.join(dataDirectory, entry.name), "utf8"));
       const schemaVersion = Number(manifest.SchemaVersion);
       if (manifest.Tool !== "Win11Optimizer" || !Number.isFinite(schemaVersion) || schemaVersion < 2 || !manifest.SessionId) {
@@ -938,17 +941,21 @@ function getRestoreAvailability(dataDirectory = CONFIG_DIR) {
         .length;
       if (String(manifest.Status) === "Restored") {
         if (unrestoredCount > 0) throw new Error(`Inconsistent change manifest: ${entry.name}`);
-        return null;
+        continue;
       }
-      if (unrestoredCount === 0) return null;
+      if (unrestoredCount === 0) continue;
 
       const createdAt = Date.parse(manifest.CreatedAt);
       if (Number.isNaN(createdAt)) throw new Error(`Invalid change manifest creation time: ${entry.name}`);
-      return createdAt;
-    })
-    .filter((createdAt) => createdAt !== null);
+      restorableChanges.push(createdAt);
+    } catch {
+      invalidCount++;
+    }
+  }
 
-  return { available: restorableChanges.length > 0 };
+  const result = { available: restorableChanges.length > 0 };
+  if (invalidCount > 0) result.invalidCount = invalidCount;
+  return result;
 }
 
 async function handleAPI(req, res, url) {

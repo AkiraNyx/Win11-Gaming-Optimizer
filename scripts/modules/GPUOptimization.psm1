@@ -79,11 +79,13 @@ function Invoke-GPUOptimization {
             }
         }
         if ($applyNvidia) {
-            $status = if ($matchedNvidia -gt 0) { "SUCCESS" } else { "SKIP" }
+            if ($matchedNvidia -eq 0) { throw "NVIDIA optimization found no writable matching display adapter registry entry" }
+            $status = "SUCCESS"
             Write-LogItem -ItemName "NVIDIA optimization" -Description "$matchedNvidia matching adapter(s)" -Status $status
         }
         if ($applyAmd) {
-            $status = if ($matchedAmd -gt 0) { "SUCCESS" } else { "SKIP" }
+            if ($matchedAmd -eq 0) { throw "AMD optimization found no writable matching display adapter registry entry" }
+            $status = "SUCCESS"
             Write-LogItem -ItemName "AMD optimization" -Description "$matchedAmd matching adapter(s)" -Status $status
         }
     }

@@ -304,6 +304,19 @@ function Get-TrackedRegistryChanges { return @((Get-OptimizationTrackerState).Re
 function Get-TrackedServiceChanges { return @((Get-OptimizationTrackerState).ServiceChanges.ToArray()) }
 function Get-TrackedOperations { return @((Get-OptimizationTrackerState).Operations.ToArray()) }
 
+function Get-PagefileSettingSnapshot {
+    [CmdletBinding()]
+    param()
+
+    return @(Get-CimInstance Win32_PageFileSetting -ErrorAction Stop | ForEach-Object {
+        [PSCustomObject]@{
+            Name = [string]$_.Name
+            InitialSize = [uint32]$_.InitialSize
+            MaximumSize = [uint32]$_.MaximumSize
+        }
+    })
+}
+
 function Read-OptimizationChangeManifest {
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -817,10 +830,24 @@ function Invoke-OperationRestore {
             $original = $Operation.OriginalValue
             $computerSystem = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
             $computerSystem | Set-CimInstance -Property @{ AutomaticManagedPagefile = [bool]$original.AutomaticManagedPagefile } -ErrorAction Stop | Out-Null
+            $originalSettings = @($original.Settings)
             if (-not [bool]$original.AutomaticManagedPagefile) {
-                foreach ($setting in @($original.Settings)) {
-                    $existing = Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue |
-                        Where-Object { $_.Name -eq [string]$setting.Name } | Select-Object -First 1
+                $originalByName = @{}
+                foreach ($setting in $originalSettings) {
+                    $name = [string]$setting.Name
+                    if ([string]::IsNullOrWhiteSpace($name) -or $originalByName.ContainsKey($name)) {
+                        throw "Page file snapshot contains a missing or duplicate setting name"
+                    }
+                    $originalByName[$name] = $setting
+                }
+                $currentSettings = @(Get-CimInstance Win32_PageFileSetting -ErrorAction Stop)
+                foreach ($setting in $currentSettings) {
+                    if (-not $originalByName.ContainsKey([string]$setting.Name)) {
+                        $setting | Remove-CimInstance -ErrorAction Stop
+                    }
+                }
+                foreach ($setting in $originalSettings) {
+                    $existing = $currentSettings | Where-Object { $_.Name -eq [string]$setting.Name } | Select-Object -First 1
                     if ($existing) {
                         $existing | Set-CimInstance -Property @{ InitialSize = [uint32]$setting.InitialSize; MaximumSize = [uint32]$setting.MaximumSize } -ErrorAction Stop | Out-Null
                     } else {
@@ -833,10 +860,13 @@ function Invoke-OperationRestore {
                 throw "Page file management verification failed after restore"
             }
             if (-not [bool]$original.AutomaticManagedPagefile) {
-                $updatedSettings = @(Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue)
-                foreach ($setting in @($original.Settings)) {
-                    $updatedSetting = $updatedSettings | Where-Object { $_.Name -eq [string]$setting.Name } | Select-Object -First 1
-                    if (-not $updatedSetting -or [uint32]$updatedSetting.InitialSize -ne [uint32]$setting.InitialSize -or [uint32]$updatedSetting.MaximumSize -ne [uint32]$setting.MaximumSize) {
+                $updatedSettings = @(Get-CimInstance Win32_PageFileSetting -ErrorAction Stop)
+                if ($updatedSettings.Count -ne $originalSettings.Count) {
+                    throw "Page file setting count verification failed after restore"
+                }
+                foreach ($setting in $originalSettings) {
+                    $matches = @($updatedSettings | Where-Object { $_.Name -eq [string]$setting.Name })
+                    if ($matches.Count -ne 1 -or [uint32]$matches[0].InitialSize -ne [uint32]$setting.InitialSize -or [uint32]$matches[0].MaximumSize -ne [uint32]$setting.MaximumSize) {
                         throw "Page file setting verification failed after restore: $($setting.Name)"
                     }
                 }
@@ -856,4 +886,4 @@ function Restore-OptimizationStateChanges {
     }
 }
 
-Export-ModuleMember -Function Initialize-OptimizationChangeTracker, Set-OptimizationChangeSession, Clear-OptimizationTrackedChanges, Add-OptimizationSessionError, Save-OptimizationChangeJournal, Test-OptimizationChangeJournalHealthy, Get-OptimizationChangeManifest, Add-RegistryChangeRecord, Add-ServiceChangeRecord, Register-OptimizationChange, Set-OptimizationChangeResult, Get-TrackedRegistryChanges, Get-TrackedServiceChanges, Get-TrackedOperations, Read-OptimizationChangeManifest, Get-OptimizationManifestRestoreState, Set-OptimizationManifestStatus, Set-OptimizationChangeRecordRestored, Invoke-TrackedRestoreRecords, Invoke-OptimizationManifestRestore, Wait-NetAdapterPowerManagementReady, Restore-OptimizationStateChanges
+Export-ModuleMember -Function Initialize-OptimizationChangeTracker, Set-OptimizationChangeSession, Clear-OptimizationTrackedChanges, Add-OptimizationSessionError, Save-OptimizationChangeJournal, Test-OptimizationChangeJournalHealthy, Get-OptimizationChangeManifest, Add-RegistryChangeRecord, Add-ServiceChangeRecord, Register-OptimizationChange, Set-OptimizationChangeResult, Get-TrackedRegistryChanges, Get-TrackedServiceChanges, Get-TrackedOperations, Get-PagefileSettingSnapshot, Read-OptimizationChangeManifest, Get-OptimizationManifestRestoreState, Set-OptimizationManifestStatus, Set-OptimizationChangeRecordRestored, Invoke-TrackedRestoreRecords, Invoke-OptimizationManifestRestore, Wait-NetAdapterPowerManagementReady, Restore-OptimizationStateChanges

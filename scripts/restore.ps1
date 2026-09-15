@@ -48,15 +48,26 @@ function Resolve-OptimizerOutputPath {
 
 function Get-LatestChangeManifestPath {
     if (-not (Test-Path -LiteralPath $outputDirectory -PathType Container)) { return $null }
-    $candidates = foreach ($file in @(Get-ChildItem -LiteralPath $outputDirectory -File -Filter "changes_*.json" -ErrorAction SilentlyContinue)) {
-        $manifest = Read-OptimizationChangeManifest -Path $file.FullName
+    $candidates = foreach ($file in @(Get-ChildItem -LiteralPath $outputDirectory -File -Filter "changes_*.json" -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -match '^changes_\d{8}_\d{6}(?:_[0-9a-f]{8})?\.json$'
+    })) {
+        try {
+            $manifest = Read-OptimizationChangeManifest -Path $file.FullName
+        } catch {
+            Write-LogEntry "Ignoring invalid change manifest $($file.FullName): $($_.Exception.Message)" -Level "WARN"
+            continue
+        }
         $restoreState = Get-OptimizationManifestRestoreState -Manifest $manifest
         if ($restoreState.State -eq "Inconsistent") {
             throw "The change manifest is inconsistent: its session is marked Restored, but $($restoreState.UnrestoredCount) record(s) still require review. Select a verified restore source explicitly: $($file.FullName)"
         }
         if ($restoreState.State -eq "Restored") { continue }
         if ($restoreState.UnrestoredCount -eq 0) { continue }
-        [PSCustomObject]@{ Path = $file.FullName; CreatedAt = [DateTime]$manifest.CreatedAt }
+        try {
+            [PSCustomObject]@{ Path = $file.FullName; CreatedAt = [DateTime]$manifest.CreatedAt }
+        } catch {
+            Write-LogEntry "Ignoring change manifest with invalid creation time $($file.FullName): $($_.Exception.Message)" -Level "WARN"
+        }
     }
     return $candidates | Sort-Object CreatedAt -Descending | Select-Object -First 1 -ExpandProperty Path
 }
@@ -127,6 +138,7 @@ try {
         } elseif ($BackupPath) {
             $backupPathType = if (Test-Path -LiteralPath $BackupPath -PathType Container) { "Container" } else { "Leaf" }
             $resolvedBackup = Resolve-OptimizerOutputPath -Path $BackupPath -PathType $backupPathType
+            Assert-TrustedBackupStorage -BackupPath $resolvedBackup | Out-Null
             $backup = Read-OptimizationBackupManifest -BackupPath $resolvedBackup
             $sequenceNumber = $backup.Manifest.RestorePointSequenceNumber
             $expectedDescription = $backup.Manifest.RestorePointDescription
@@ -139,6 +151,7 @@ try {
             } else {
                 $latestBackup = Get-LatestBackupManifestPath
                 if (-not $latestBackup) { throw "No optimizer restore manifest was found" }
+                Assert-TrustedBackupStorage -BackupPath $latestBackup | Out-Null
                 $backup = Read-OptimizationBackupManifest -BackupPath $latestBackup
                 $sequenceNumber = $backup.Manifest.RestorePointSequenceNumber
                 $expectedDescription = $backup.Manifest.RestorePointDescription

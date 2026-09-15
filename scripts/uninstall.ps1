@@ -58,7 +58,9 @@ if (-not (Test-Path -LiteralPath $outputDirectory -PathType Container)) {
 
 $manifests = [System.Collections.ArrayList]::new()
 $discoveryErrors = [System.Collections.ArrayList]::new()
-foreach ($file in @(Get-ChildItem -LiteralPath $outputDirectory -File -Filter "changes_*.json" -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending)) {
+foreach ($file in @(Get-ChildItem -LiteralPath $outputDirectory -File -Filter "changes_*.json" -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^changes_\d{8}_\d{6}(?:_[0-9a-f]{8})?\.json$' } |
+        Sort-Object LastWriteTimeUtc -Descending)) {
     try {
         $manifest = Read-OptimizationChangeManifest -Path $file.FullName
         $restoreState = Get-OptimizationManifestRestoreState -Manifest $manifest

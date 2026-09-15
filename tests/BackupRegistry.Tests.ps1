@@ -24,6 +24,8 @@ Assert-Match $backupSource 'Registry inventory failed for \$path' "Registry inve
 Assert-Match $backupSource 'Registry value snapshot failed for display adapters' "Targeted GPU snapshot failures must identify their stage"
 Assert-Match $backupSource 'Registry export failed for \$path' "Registry export failures must retain their own stage"
 Assert-Match $backupSource 'Backup manifest write failed for \$Path' "Manifest persistence failures must identify their stage"
+Assert-Match $backupSource 'function Assert-TrustedBackupStorage' "Full backup restore must require protected backup storage"
+Assert-Match $backupSource 'StartValue = \$startupSnapshot.StartValue' "Service backups must preserve the raw startup value"
 Assert-Match $mainSource 'New-OptimizationBackup[^\r\n]+-PlannedItems \$plannedItems' "Pre-apply backup must receive the final planned items"
 
 $testId = [guid]::NewGuid().ToString("N")
@@ -70,7 +72,12 @@ try {
     New-Item -Path $addedChild | Out-Null
     New-ItemProperty -LiteralPath $addedChild -Name "ChildAdded" -Value "added" -PropertyType String | Out-Null
 
-    $restoreResult = Restore-OptimizationBackup -BackupPath $backupDirectory -SkipServices -SkipPower
+    $restoreResult = & $backupModule {
+        param($BackupPath)
+        function Assert-TrustedBackupStorage { return $true }
+        try { Restore-OptimizationBackup -BackupPath $BackupPath -SkipServices -SkipPower }
+        finally { Remove-Item Function:\Assert-TrustedBackupStorage -Force -ErrorAction SilentlyContinue }
+    } $backupDirectory
     Assert-Equal $restoreResult.Success $true "Inventory-aware registry restore must succeed: $($restoreResult.Errors -join '; ')"
     Assert-Equal (Get-ItemPropertyValue -LiteralPath $registryPath -Name "Original") "before" "The exported value must be restored"
     $rootValueNames = @((Get-Item -LiteralPath $registryPath).GetValueNames())
@@ -86,7 +93,12 @@ try {
         (New-Object Text.UTF8Encoding($false))
     )
     New-ItemProperty -LiteralPath $registryPath -Name "LegacyAdded" -Value 1 -PropertyType DWord | Out-Null
-    $legacyResult = Restore-OptimizationBackup -BackupPath $backupDirectory -SkipServices -SkipPower
+    $legacyResult = & $backupModule {
+        param($BackupPath)
+        function Assert-TrustedBackupStorage { return $true }
+        try { Restore-OptimizationBackup -BackupPath $BackupPath -SkipServices -SkipPower }
+        finally { Remove-Item Function:\Assert-TrustedBackupStorage -Force -ErrorAction SilentlyContinue }
+    } $backupDirectory
     Assert-Equal $legacyResult.Success $true "A legacy schema 2 registry backup must remain restorable"
     Assert-Equal (@((Get-Item -LiteralPath $registryPath).GetValueNames()) -contains "LegacyAdded") $true "A legacy backup without inventory must retain merge behavior"
 
@@ -180,15 +192,53 @@ try {
             param($Change)
             $Calls.Add("$($Change.Metadata.Path)|$($Change.Metadata.Name)") | Out-Null
         }
+        function Assert-TrustedBackupStorage { return $true }
         try {
             Restore-OptimizationBackup -BackupPath $BackupPath -SkipServices -SkipPower
         } finally {
-            Remove-Item Function:\Restore-RegistryChangeRecord -Force -ErrorAction SilentlyContinue
+            Remove-Item Function:\Restore-RegistryChangeRecord,Function:\Assert-TrustedBackupStorage -Force -ErrorAction SilentlyContinue
         }
     } $snapshotBackupDirectory $snapshotRestoreCalls
     Assert-Equal $snapshotRestoreResult.Success $true "A schema 2 backup with targeted registry snapshots must restore successfully"
     Assert-Equal $snapshotRestoreResult.RestoredCount 5 "Every targeted GPU registry value must be restored"
     Assert-Equal $snapshotRestoreCalls.Count 5 "Targeted snapshots must use the allowlisted registry restore path"
+
+    $trustedStorage = & $backupModule {
+        param($Directory)
+        function Get-Acl {
+            param([string]$LiteralPath)
+            $adminSid = [Security.Principal.SecurityIdentifier]::new("S-1-5-32-544")
+            return [PSCustomObject]@{
+                Owner = $adminSid
+                Access = @([PSCustomObject]@{
+                    IdentityReference = $adminSid
+                    AccessControlType = "Allow"
+                    FileSystemRights = [System.Security.AccessControl.FileSystemRights]::FullControl
+                })
+            }
+        }
+        try { Assert-TrustedBackupStorage -BackupPath $Directory } finally { Remove-Item Function:\Get-Acl -Force -ErrorAction SilentlyContinue }
+    } $backupDirectory
+    Assert-Equal $trustedStorage $true "An administrator-owned backup directory with only trusted write access must pass storage validation"
+
+    $untrustedStorageError = & $backupModule {
+        param($Directory)
+        function Get-Acl {
+            param([string]$LiteralPath)
+            $usersSid = [Security.Principal.SecurityIdentifier]::new("S-1-5-32-545")
+            return [PSCustomObject]@{
+                Owner = $usersSid
+                Access = @([PSCustomObject]@{
+                    IdentityReference = $usersSid
+                    AccessControlType = "Allow"
+                    FileSystemRights = [System.Security.AccessControl.FileSystemRights]::FullControl
+                })
+            }
+        }
+        try { Assert-TrustedBackupStorage -BackupPath $Directory; return "" } catch { return $_.Exception.Message }
+        finally { Remove-Item Function:\Get-Acl -Force -ErrorAction SilentlyContinue }
+    } $backupDirectory
+    Assert-Match $untrustedStorageError "trusted system principal|untrusted principal" "Untrusted backup storage must be rejected before privileged restore"
 
     Write-Output "Backup registry regression tests passed"
 } finally {

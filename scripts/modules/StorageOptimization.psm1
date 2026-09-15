@@ -1,6 +1,7 @@
 #Requires -Version 5.1
 
 $Script:UtilsPath = Join-Path $PSScriptRoot "..\utils"
+Import-Module (Join-Path $Script:UtilsPath "ChangeTracking.psm1") -Force
 Import-Module (Join-Path $Script:UtilsPath "Registry.psm1") -Force
 Import-Module (Join-Path $Script:UtilsPath "Service.psm1") -Force
 
@@ -8,13 +9,7 @@ function Enable-TrackedAutomaticPagefile {
     $computerSystem = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
     if ([bool]$computerSystem.AutomaticManagedPagefile) { return $false }
 
-    $settings = @(Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue | ForEach-Object {
-        [PSCustomObject]@{
-            Name = [string]$_.Name
-            InitialSize = [uint32]$_.InitialSize
-            MaximumSize = [uint32]$_.MaximumSize
-        }
-    })
+    $settings = @(Get-PagefileSettingSnapshot)
     $original = [PSCustomObject]@{
         AutomaticManagedPagefile = $false
         Settings = $settings
@@ -29,15 +24,13 @@ function Enable-TrackedAutomaticPagefile {
 
 function Disable-TrackedPagefile {
     $computerSystem = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
-    $settings = @(Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue | ForEach-Object {
-        [PSCustomObject]@{ Name = [string]$_.Name; InitialSize = [uint32]$_.InitialSize; MaximumSize = [uint32]$_.MaximumSize }
-    })
+    $settings = @(Get-PagefileSettingSnapshot)
     if (-not [bool]$computerSystem.AutomaticManagedPagefile -and $settings.Count -eq 0) { return $false }
     $original = [PSCustomObject]@{ AutomaticManagedPagefile = [bool]$computerSystem.AutomaticManagedPagefile; Settings = $settings }
     $changeId = Register-OptimizationChange -Kind "PageFileConfiguration" -Target "Win32_ComputerSystem" -OriginalValue $original -NewValue "disabled" -Description "Disable the page file"
     Complete-TrackedOperation -ChangeId $changeId -Action {
         $computerSystem | Set-CimInstance -Property @{ AutomaticManagedPagefile = $false } -ErrorAction Stop | Out-Null
-        foreach ($setting in @(Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue)) {
+        foreach ($setting in @(Get-CimInstance Win32_PageFileSetting -ErrorAction Stop)) {
             Remove-CimInstance -InputObject $setting -ErrorAction Stop
         }
     }

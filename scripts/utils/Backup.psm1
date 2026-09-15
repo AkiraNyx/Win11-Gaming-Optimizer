@@ -43,6 +43,54 @@ function Resolve-BackupChildPath {
     return $candidate
 }
 
+function Get-IdentitySid {
+    param([Parameter(Mandatory = $true)]$IdentityReference)
+
+    try { return $IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value }
+    catch { return [string]$IdentityReference }
+}
+
+function Assert-TrustedBackupStorage {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$BackupPath)
+
+    $fullPath = [IO.Path]::GetFullPath($BackupPath)
+    $backupDirectory = if (Test-Path -LiteralPath $fullPath -PathType Container) {
+        $fullPath
+    } else {
+        [IO.Path]::GetDirectoryName($fullPath)
+    }
+    if ([string]::IsNullOrWhiteSpace($backupDirectory) -or -not (Test-Path -LiteralPath $backupDirectory -PathType Container)) {
+        throw "Backup storage directory was not found: $backupDirectory"
+    }
+
+    $backupAcl = Get-Acl -LiteralPath $backupDirectory -ErrorAction Stop
+    $trustedSids = @("S-1-5-18", "S-1-5-32-544")
+    if ($trustedSids -notcontains (Get-IdentitySid -IdentityReference $backupAcl.Owner)) {
+        throw "Backup storage is not owned by a trusted system principal: $backupDirectory"
+    }
+
+    $parentDirectory = [IO.Directory]::GetParent($backupDirectory)
+    if ($null -eq $parentDirectory) { throw "Backup storage has no parent directory: $backupDirectory" }
+    $writeRights = [int][System.Security.AccessControl.FileSystemRights]::Write -bor
+        [int][System.Security.AccessControl.FileSystemRights]::Delete -bor
+        [int][System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+        [int][System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [int][System.Security.AccessControl.FileSystemRights]::TakeOwnership
+
+    foreach ($directory in @($backupDirectory, $parentDirectory.FullName)) {
+        $acl = if ($directory -eq $backupDirectory) { $backupAcl } else { Get-Acl -LiteralPath $directory -ErrorAction Stop }
+        foreach ($rule in @($acl.Access)) {
+            if ([string]$rule.AccessControlType -ne "Allow") { continue }
+            $sid = Get-IdentitySid -IdentityReference $rule.IdentityReference
+            if ($trustedSids -notcontains $sid -and (([int]$rule.FileSystemRights -band $writeRights) -ne 0)) {
+                throw "Backup storage grants write access to an untrusted principal: $directory"
+            }
+        }
+    }
+    return $true
+}
+
 function Get-RegistryValueInventory {
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][string]$RegistryPath)
@@ -144,6 +192,112 @@ function Remove-RegistryValuesNotInInventory {
                 @("delete", $nativePath, "/v", $valueName, "/f")
             }
             Invoke-CheckedNativeCommand -FilePath "reg.exe" -ArgumentList $arguments | Out-Null
+        }
+    }
+}
+
+function Get-ServiceRegistryStartupSnapshot {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$ServiceName)
+
+    $servicePath = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
+    $key = Get-Item -LiteralPath $servicePath -ErrorAction Stop
+    $valueNames = @($key.GetValueNames())
+    if ($valueNames -notcontains "Start") { throw "Service startup value was not found: $ServiceName" }
+
+    $startValue = $key.GetValue("Start", $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    if ($null -eq $startValue) { throw "Service startup value was empty: $ServiceName" }
+    $delayedExists = $valueNames -contains "DelayedAutoStart"
+    $delayedValue = if ($delayedExists) {
+        [int]$key.GetValue("DelayedAutoStart", 0, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    } else {
+        0
+    }
+    return [PSCustomObject]@{
+        StartValue = [int]$startValue
+        DelayedAutoStartExists = $delayedExists
+        DelayedAutoStart = ($delayedValue -ne 0)
+    }
+}
+
+function Get-ServiceStartupConfiguration {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)]$Service)
+
+    $startValueProperty = $Service.PSObject.Properties["StartValue"]
+    if ($null -ne $startValueProperty) {
+        $startValue = 0
+        if (-not [int]::TryParse([string]$startValueProperty.Value, [ref]$startValue)) {
+            throw "Invalid saved service startup value for $($Service.Name): $($startValueProperty.Value)"
+        }
+        $startType = switch ($startValue) {
+            0 { "boot" }
+            1 { "system" }
+            2 { "auto" }
+            3 { "demand" }
+            4 { "disabled" }
+            default { throw "Unsupported saved service startup value $startValue for $($Service.Name)" }
+        }
+        return [PSCustomObject]@{ ScStartType = $startType; StartValue = $startValue; UsesRawValue = $true }
+    }
+
+    $legacy = switch ([string]$Service.StartMode) {
+        "Boot" { [PSCustomObject]@{ ScStartType = "boot"; StartValue = 0; UsesRawValue = $true } }
+        "System" { [PSCustomObject]@{ ScStartType = "system"; StartValue = 1; UsesRawValue = $true } }
+        "Auto" { [PSCustomObject]@{ ScStartType = "auto"; StartValue = 2; UsesRawValue = $false } }
+        "Manual" { [PSCustomObject]@{ ScStartType = "demand"; StartValue = 3; UsesRawValue = $false } }
+        "Disabled" { [PSCustomObject]@{ ScStartType = "disabled"; StartValue = 4; UsesRawValue = $false } }
+        default { throw "Unsupported startup mode $($Service.StartMode)" }
+    }
+    return $legacy
+}
+
+function Restore-ServiceStartupSnapshot {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)]$Service)
+
+    $configuration = Get-ServiceStartupConfiguration -Service $Service
+    if (-not $configuration.UsesRawValue) {
+        $startupType = switch ([string]$Service.StartMode) {
+            "Auto" { "Automatic" }
+            "Manual" { "Manual" }
+            "Disabled" { "Disabled" }
+            default { throw "Unsupported startup mode $($Service.StartMode)" }
+        }
+        Set-Service -Name ([string]$Service.Name) -StartupType $startupType -ErrorAction Stop
+        return
+    }
+
+    Invoke-CheckedNativeCommand -FilePath "sc.exe" -ArgumentList @("config", [string]$Service.Name, "start=", $configuration.ScStartType) | Out-Null
+    $delayedExistsProperty = $Service.PSObject.Properties["DelayedAutoStartExists"]
+    if ($null -ne $delayedExistsProperty) {
+        $servicePath = "HKLM:\SYSTEM\CurrentControlSet\Services\$($Service.Name)"
+        $current = Get-ItemProperty -LiteralPath $servicePath -ErrorAction Stop
+        $currentDelayed = $current.PSObject.Properties["DelayedAutoStart"]
+        if ([bool]$delayedExistsProperty.Value) {
+            $delayedValue = [int][bool]$Service.DelayedAutoStart
+            if ($null -ne $currentDelayed) {
+                Set-ItemProperty -LiteralPath $servicePath -Name "DelayedAutoStart" -Value $delayedValue -ErrorAction Stop | Out-Null
+            } else {
+                New-ItemProperty -LiteralPath $servicePath -Name "DelayedAutoStart" -Value $delayedValue -PropertyType DWord -ErrorAction Stop | Out-Null
+            }
+        } elseif ($null -ne $currentDelayed) {
+            Remove-ItemProperty -LiteralPath $servicePath -Name "DelayedAutoStart" -Force -ErrorAction Stop
+        }
+    }
+
+    $updated = Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$($Service.Name)" -ErrorAction Stop
+    if ($null -eq $updated.PSObject.Properties["Start"] -or [int]$updated.Start -ne [int]$configuration.StartValue) {
+        throw "Service startup value verification failed after restore: $($Service.Name)"
+    }
+    if ($null -ne $delayedExistsProperty) {
+        $updatedDelayed = $updated.PSObject.Properties["DelayedAutoStart"]
+        $expectedDelayedExists = [bool]$delayedExistsProperty.Value
+        if (($null -ne $updatedDelayed) -ne $expectedDelayedExists) {
+            throw "Service delayed-start presence verification failed after restore: $($Service.Name)"
+        }
+        if ($expectedDelayedExists -and [int]$updatedDelayed.Value -ne [int][bool]$Service.DelayedAutoStart) {
+            throw "Service delayed-start verification failed after restore: $($Service.Name)"
         }
     }
 }
@@ -261,11 +415,15 @@ function New-OptimizationBackup {
     try {
         $serviceFile = "services_snapshot.json"
         $services = Get-CimInstance Win32_Service -ErrorAction Stop | ForEach-Object {
+            $startupSnapshot = Get-ServiceRegistryStartupSnapshot -ServiceName ([string]$_.Name)
             [PSCustomObject]@{
                 Name = $_.Name
                 DisplayName = $_.DisplayName
                 State = $_.State
                 StartMode = $_.StartMode
+                StartValue = $startupSnapshot.StartValue
+                DelayedAutoStartExists = $startupSnapshot.DelayedAutoStartExists
+                DelayedAutoStart = $startupSnapshot.DelayedAutoStart
             }
         }
         Write-BackupJson -Path (Join-Path $backupDirectory $serviceFile) -Value @($services) -Depth 4
@@ -294,7 +452,7 @@ function New-OptimizationBackup {
         @{ File = "pagefile_snapshot.json"; Script = {
             [PSCustomObject]@{
                 AutomaticManagedPagefile = (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).AutomaticManagedPagefile
-                Settings = @(Get-CimInstance Win32_PageFileSetting -ErrorAction SilentlyContinue | Select-Object Name, InitialSize, MaximumSize)
+                Settings = @(Get-CimInstance Win32_PageFileSetting -ErrorAction Stop | Select-Object Name, InitialSize, MaximumSize)
             }
         } },
         @{ File = "memory_snapshot.json"; Script = { Get-MMAgent -ErrorAction Stop | Select-Object MemoryCompression } }
@@ -369,6 +527,7 @@ function Restore-OptimizationBackup {
         [switch]$SkipPower
     )
 
+    Assert-TrustedBackupStorage -BackupPath $BackupPath | Out-Null
     $backup = Read-OptimizationBackupManifest -BackupPath $BackupPath
     $errors = [System.Collections.ArrayList]::new()
     $restored = 0
@@ -405,13 +564,7 @@ function Restore-OptimizationBackup {
             $services = Get-Content -LiteralPath $servicePath -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
             foreach ($service in $services) {
                 try {
-                    $startupType = switch ([string]$service.StartMode) {
-                        "Auto" { "Automatic" }
-                        "Manual" { "Manual" }
-                        "Disabled" { "Disabled" }
-                        default { throw "Unsupported startup mode $($service.StartMode)" }
-                    }
-                    Set-Service -Name ([string]$service.Name) -StartupType $startupType -ErrorAction Stop
+                    Restore-ServiceStartupSnapshot -Service $service
                     $restored++
                 } catch {
                     $errors.Add("Service $($service.Name): $($_.Exception.Message)") | Out-Null
@@ -444,4 +597,4 @@ function Restore-OptimizationBackup {
     return [PSCustomObject]@{ Success = ($errors.Count -eq 0); Errors = @($errors.ToArray()); RestoredCount = $restored }
 }
 
-Export-ModuleMember -Function New-OptimizationBackup, Read-OptimizationBackupManifest, Restore-OptimizationBackup
+Export-ModuleMember -Function New-OptimizationBackup, Read-OptimizationBackupManifest, Restore-OptimizationBackup, Assert-TrustedBackupStorage
