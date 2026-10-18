@@ -2,10 +2,9 @@
 
 import { useId, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Circle, LockKeyhole, Play, RotateCcw, Search } from "lucide-react";
-import { motion } from "motion/react";
+import { Select } from "@arinox/react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { isOptimizationTargetAllowed, isPreserveOnlyTarget } from "@/lib/categories";
@@ -136,12 +135,7 @@ export function OptimizationItemRow({
 
   return (
     <>
-      <motion.div
-        layout
-        initial={{ opacity: 0, y: 4 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="grid min-h-16 grid-cols-1 items-center gap-3 rounded-md border border-border/60 px-3 py-3 transition-colors hover:bg-accent/40 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-4 sm:px-4"
-      >
+      <div className="optimizer-item">
         <div className="flex min-w-0 items-start gap-3">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -206,23 +200,17 @@ export function OptimizationItemRow({
           {item.control === "select" && target !== undefined ? (
             <Select
               value={encodeValue(target)}
-              onValueChange={(encoded) => {
-                const selected = options.find((option) => encodeValue(option.value) === encoded);
+              onChange={(event) => {
+                const selected = options.find((option) => encodeValue(option.value) === event.target.value);
                 if (selected) requestTarget(selected.value);
               }}
               disabled={controlDisabled}
+              className="optimizer-select"
+              aria-label={`设置${item.name}目标值`}
+              aria-describedby={dependencyBlock ? dependencyHelpId : undefined}
             >
-              <SelectTrigger
-                size="sm"
-                className="w-full sm:w-44"
-                aria-label={`设置${item.name}目标值`}
-                aria-describedby={dependencyBlock ? dependencyHelpId : undefined}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent position="popper" align="end">
                 {options.map((option) => (
-                  <SelectItem
+                  <option
                     key={encodeValue(option.value)}
                     value={encodeValue(option.value)}
                     disabled={
@@ -235,9 +223,8 @@ export function OptimizationItemRow({
                     }
                   >
                     {option.label}
-                  </SelectItem>
+                  </option>
                 ))}
-              </SelectContent>
             </Select>
           ) : null}
 
@@ -276,7 +263,7 @@ export function OptimizationItemRow({
             </p>
           ) : null}
         </div>
-      </motion.div>
+      </div>
 
       {warning ? (
         <ConfirmToggleDialog

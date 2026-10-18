@@ -7,7 +7,7 @@
 **为 Windows 11 游戏玩家读取系统状态、规划目标差异，并保留可恢复记录。**
 
 [![Build EXE](https://github.com/AkiraNyx/Win11-Gaming-Optimizer/actions/workflows/build-exe.yml/badge.svg)](https://github.com/AkiraNyx/Win11-Gaming-Optimizer/actions/workflows/build-exe.yml)
-[Dev 0.0.3](https://github.com/AkiraNyx/Win11-Gaming-Optimizer/releases/tag/v0.0.3) · Windows 11 x64 · [AGPL-3.0-only](./LICENSE)
+[Dev 0.0.4](https://github.com/AkiraNyx/Win11-Gaming-Optimizer/releases/tag/v0.0.4) · Windows 11 x64 · [AGPL-3.0-only](./LICENSE)
 
 [快速开始](#快速开始) · [功能与工作方式](#功能与工作方式) · [安全与恢复](#安全与恢复) · [开发与构建](#开发与构建)
 
@@ -19,7 +19,7 @@
   <img src="./assets/win11-optimizer-overview.png" alt="Win11 Optimizer 主界面：分类导航、目标预设与系统设置" width="1280">
 </p>
 
-从分类导航查看设置，选择预设后检查待调整项目及阻止原因，再确认执行。
+从分类导航查看设置，选择预设后检查待调整项目及阻止原因，再确认执行。截图中的硬件信息为演示数据；界面现使用 Arinox 的日夜主题和离线字体。
 
 - **状态与差异**：读取 84 个项目，仅将可验证的差异纳入执行计划。
 - **目标与依赖**：提供保守、平衡、极致和自定义目标，检查硬件条件与配置依赖。
@@ -198,6 +198,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\RestoreRetry.Tes
 ```
 
 这些测试覆盖部分回归路径，不等同于真实 Windows 硬件上的完整优化与恢复集成测试。
+
+界面交互可另按 [浏览器回归检查说明](./ui/checks/README.md) 运行 `npm.cmd run test:ui`，覆盖主题、焦点、导入导出、风险确认、状态重试和小窗口错误布局。
 
 构建便携版：
 

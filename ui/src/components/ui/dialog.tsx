@@ -1,168 +1,64 @@
-"use client"
+"use client";
+import { createContext, useContext, useId, useRef, type ComponentProps, type ReactNode, type SyntheticEvent } from "react";
+import { Dialog as ArinoxDialog } from "@arinox/react";
+import { Slot } from "radix-ui";
+import { X } from "lucide-react";
+import { Button } from "./button";
+import { cn } from "@/lib/utils";
 
-import * as React from "react"
-import { Dialog as DialogPrimitive } from "radix-ui"
-
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
-import { XIcon } from "lucide-react"
-
-function Dialog({
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+const DialogContext = createContext<{ open: boolean; onOpenChange: (open: boolean) => void; titleId: string; descriptionId: string }>({ open: false, onOpenChange: () => {}, titleId: "", descriptionId: "" });
+export function Dialog({ open, onOpenChange, children }: { open: boolean; onOpenChange: (open: boolean) => void; children: ReactNode }) {
+  const id = useId();
+  return <DialogContext.Provider value={{ open, onOpenChange, titleId: id + "-title", descriptionId: id + "-description" }}>{children}</DialogContext.Provider>;
 }
-
-function DialogTrigger({
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
-  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
-}
-
-function DialogPortal({
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Portal>) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
-}
-
-function DialogClose({
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Close>) {
-  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
-}
-
-function DialogOverlay({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
-  return (
-    <DialogPrimitive.Overlay
-      data-slot="dialog-overlay"
-      className={cn(
-        "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
-        className
-      )}
-      {...props}
-    />
-  )
-}
-
-function DialogContent({
-  className,
-  children,
-  showCloseButton = true,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & {
-  showCloseButton?: boolean
+export function DialogContent({ children, className, showCloseButton = true, onCloseAutoFocus, onEscapeKeyDown, onInteractOutside }: {
+  children: ReactNode; className?: string; showCloseButton?: boolean;
+  onCloseAutoFocus?: (event: Event) => void;
+  onEscapeKeyDown?: (event: SyntheticEvent<HTMLDialogElement>) => void;
+  onInteractOutside?: (event: SyntheticEvent<HTMLDialogElement>) => void;
 }) {
-  return (
-    <DialogPortal>
-      <DialogOverlay />
-      <DialogPrimitive.Content
-        data-slot="dialog-content"
-        className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-md bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          className
-        )}
-        {...props}
-      >
-        {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close data-slot="dialog-close" asChild>
-            <Button
-              variant="ghost"
-              className="absolute top-2 right-2"
-              size="icon-sm"
-            >
-              <XIcon
-              />
-              <span className="sr-only">关闭</span>
-            </Button>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Content>
-    </DialogPortal>
-  )
-}
-
-function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="dialog-header"
-      className={cn("flex flex-col gap-2", className)}
-      {...props}
-    />
-  )
-}
-
-function DialogFooter({
-  className,
-  showCloseButton = false,
-  children,
-  ...props
-}: React.ComponentProps<"div"> & {
-  showCloseButton?: boolean
-}) {
-  return (
-    <div
-      data-slot="dialog-footer"
-      className={cn(
-        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-md border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
-        className
-      )}
-      {...props}
-    >
+  const { open, onOpenChange, titleId, descriptionId } = useContext(DialogContext);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  return <ArinoxDialog open={open} onOpenChange={onOpenChange} initialFocusRef={closeRef}
+    aria-labelledby={titleId} aria-describedby={descriptionId}
+    className={cn("optimizer-dialog", className)} onCancel={onEscapeKeyDown}
+    onAfterClose={() => onCloseAutoFocus?.(new Event("closeAutoFocus", { cancelable: true }))}
+    onKeyDown={event => {
+      if (event.key !== "Tab") return;
+      const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])')].filter(node => node.getClientRects().length > 0 && !node.closest("[inert]"));
+      const first = controls[0], last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first && last) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last && first) { event.preventDefault(); first.focus(); }
+    }}
+    onClick={event => {
+      if (event.target !== event.currentTarget) return;
+      const bounds = event.currentTarget.getBoundingClientRect();
+      if (event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom) return;
+      onInteractOutside?.(event);
+      if (!event.defaultPrevented) onOpenChange(false);
+    }}>
+    <div className="optimizer-dialog-body">
       {children}
-      {showCloseButton && (
-        <DialogPrimitive.Close asChild>
-          <Button variant="outline">关闭</Button>
-        </DialogPrimitive.Close>
-      )}
+      {showCloseButton && <Button ref={closeRef} variant="ghost" size="icon-sm" className="optimizer-dialog-close" aria-label="关闭" onClick={() => onOpenChange(false)}><X className="size-4" /></Button>}
     </div>
-  )
+  </ArinoxDialog>;
 }
-
-function DialogTitle({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Title>) {
-  return (
-    <DialogPrimitive.Title
-      data-slot="dialog-title"
-      className={cn(
-        "font-heading text-base leading-none font-medium",
-        className
-      )}
-      {...props}
-    />
-  )
+export function DialogClose({ asChild, onClick, ...props }: ComponentProps<"button"> & { asChild?: boolean }) {
+  const { onOpenChange } = useContext(DialogContext);
+  const Comp = asChild ? Slot.Root : "button";
+  return <Comp {...props} onClick={event => { onClick?.(event); if (!event.defaultPrevented) onOpenChange(false); }} />;
 }
-
-function DialogDescription({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Description>) {
-  return (
-    <DialogPrimitive.Description
-      data-slot="dialog-description"
-      className={cn(
-        "text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
-        className
-      )}
-      {...props}
-    />
-  )
+export function DialogHeader({ className, ...props }: ComponentProps<"div">) {
+  return <div {...props} className={cn("space-y-2 pr-6", className)} />;
 }
-
-export {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-  DialogTrigger,
+export function DialogFooter({ className, ...props }: ComponentProps<"div">) {
+  return <div {...props} className={cn("optimizer-dialog-footer", className)} />;
+}
+export function DialogTitle({ className, ...props }: ComponentProps<"h2">) {
+  const { titleId } = useContext(DialogContext);
+  return <h2 {...props} id={titleId} className={cn("ax-display", className)} />;
+}
+export function DialogDescription({ className, ...props }: ComponentProps<"p">) {
+  const { descriptionId } = useContext(DialogContext);
+  return <p {...props} id={descriptionId} className={cn("text-sm leading-relaxed text-muted-foreground", className)} />;
 }

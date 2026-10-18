@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { GeistSans } from "geist/font/sans";
-import { GeistMono } from "geist/font/mono";
+import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
+import "@arinox/react/styles.css";
 
 export const metadata: Metadata = {
   title: "Windows 11 游戏优化工具",
@@ -11,9 +11,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN" className={`${GeistSans.variable} ${GeistMono.variable} dark`}>
+    <html lang="zh-CN">
       <body className="font-sans antialiased" suppressHydrationWarning>
-        <TooltipProvider>{children}</TooltipProvider>
+        <ThemeProvider><TooltipProvider>{children}</TooltipProvider></ThemeProvider>
       </body>
     </html>
   );

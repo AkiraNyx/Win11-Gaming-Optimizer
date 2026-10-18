@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Loader2, Play, RefreshCw, X } from "lucide-react";
-import { MotionConfig, motion } from "motion/react";
+import { MotionConfig } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ClientOnly } from "@/components/client-only";
@@ -240,7 +240,7 @@ export default function Home() {
   return (
     <ClientOnly>
       <MotionConfig reducedMotion="user">
-      <div className="flex h-dvh flex-col overflow-hidden">
+      <div className="optimizer-app">
         <Header
           onExport={() => { rememberTrigger(exportTriggerRef); setExportOpen(true); }}
           onImport={openImport}
@@ -259,7 +259,7 @@ export default function Home() {
           uninstallDisabled={restoreAvailability !== "available"}
           uninstallDisabledReason={restoreDisabledReason}
         />
-        <div className="flex flex-col items-stretch justify-between gap-3 border-b border-border px-4 py-2.5 lg:flex-row lg:items-center lg:gap-4 lg:px-6">
+        <div className="optimizer-toolbar">
           <PresetSelector
             activePreset={activePreset}
             onSelect={(preset) => { void requestPreset(preset); }}
@@ -270,7 +270,7 @@ export default function Home() {
           />
           <div className="flex flex-wrap items-center justify-between gap-3 lg:justify-end">
             <ChangeSummary changed={changes.changed} enabled={changes.enabled} disabled={changes.disabled} highRisk={changes.highRisk} unavailable={changes.unavailable} blocked={changes.blocked} />
-            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+            <div>
               <Button
                 onClick={() => { rememberTrigger(optimizeTriggerRef); setOptimizeOpen(true); }}
                 disabled={mutationsDisabled || interactionBusy || !configurationReady || changes.changed === 0 || changes.unavailable > 0 || changes.blocked > 0}
@@ -278,7 +278,7 @@ export default function Home() {
               >
                 <Play className="size-4" />执行优化
               </Button>
-            </motion.div>
+            </div>
           </div>
         </div>
         {interactionBusy ? (
@@ -342,7 +342,7 @@ export default function Home() {
             <span>部分项目状态未知，已保留原目标并暂停执行（{changes.unavailable} 项）。重新读取成功前，此提示会持续显示。</span>
           </div>
         ) : null}
-        <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+        <div className="optimizer-workspace">
           <Sidebar
             activeCategory={activeCategory}
             onSelect={setActiveCategory}
@@ -352,9 +352,8 @@ export default function Home() {
             logOpen={runtimeLogOpen}
             disabled={interactionBusy}
           />
-          <main className="flex-1 overflow-hidden" aria-busy={interactionBusy}>
-            <div className="h-full overflow-y-auto thin-scroll">
-              <motion.div key={activeCategory} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.15 }} className="p-4 md:p-6">
+          <main className="optimizer-main thin-scroll" aria-busy={interactionBusy}>
+              <div key={activeCategory} className="optimizer-category">
                 {currentCategory && (
                   <CategoryPanel
                     category={currentCategory}
@@ -367,8 +366,7 @@ export default function Home() {
                     syncing={statusLoading && statusRequestSource === currentCategory.id}
                   />
                 )}
-              </motion.div>
-            </div>
+              </div>
           </main>
         </div>
         <Footer runtime={runtimeCapabilities} loading={runtimeLoading} />

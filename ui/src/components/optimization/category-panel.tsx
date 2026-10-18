@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
 import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -49,13 +48,14 @@ export function CategoryPanel({
     : "当前分类没有可同步的目标状态。";
 
   return (
-    <section className="space-y-3" aria-labelledby={`${category.id}-heading`}>
-      <div className="flex flex-col items-start justify-between gap-3 border-b border-border pb-3 sm:flex-row sm:items-center sm:gap-4">
+    <section aria-labelledby={`${category.id}-heading`}>
+      <div className="optimizer-category-header">
         <div className="min-w-0">
-          <h2 id={`${category.id}-heading`} className="text-base font-semibold">{category.name}</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">{category.description}</p>
+          <span className="optimizer-eyebrow">系统调校 / {String(category.items.length).padStart(2, "0")} 个项目</span>
+          <h2 id={`${category.id}-heading`}>{category.name}</h2>
+          <p>{category.description}</p>
         </div>
-        <div className="flex w-full items-center justify-end gap-1 sm:w-auto">
+        <div className="optimizer-category-actions">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -83,9 +83,7 @@ export function CategoryPanel({
                 aria-expanded={expanded}
                 aria-label={expanded ? `收起${category.name}` : `展开${category.name}`}
               >
-                <motion.span animate={{ rotate: expanded ? 180 : 0 }} transition={{ duration: 0.15 }}>
-                  <ChevronDown className="size-4" />
-                </motion.span>
+                <ChevronDown className={expanded ? "size-4 rotate-180" : "size-4"} />
               </Button>
             </TooltipTrigger>
             <TooltipContent>{expanded ? "收起" : "展开"}</TooltipContent>
@@ -93,15 +91,8 @@ export function CategoryPanel({
         </div>
       </div>
 
-      <AnimatePresence initial={false}>
         {expanded ? (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.16 }}
-            className="space-y-1.5 overflow-hidden"
-          >
+          <div className="optimizer-item-list">
             {category.items.map((item) => (
               <OptimizationItemRow
                 key={item.id}
@@ -120,9 +111,8 @@ export function CategoryPanel({
                 )}
               />
             ))}
-          </motion.div>
+          </div>
         ) : null}
-      </AnimatePresence>
     </section>
   );
 }
