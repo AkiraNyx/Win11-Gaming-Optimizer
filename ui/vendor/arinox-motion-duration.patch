@@ -1,0 +1,18 @@
+diff --git a/src/motion.ts b/src/motion.ts
+index 79a9486..a3a4161 100644
+--- a/src/motion.ts
++++ b/src/motion.ts
+@@ -36,7 +36,12 @@ export function useNode<T extends HTMLElement>(external?: Ref<T>) {
+ }
+ export function motionTokens(node: Element) {
+   const style = getComputedStyle(node);
+-  const duration = (name: string, fallback: number) => parseFloat(style.getPropertyValue('--ax-motion-duration-' + name)) || fallback;
++  const duration = (name: string, fallback: number) => {
++    const raw = style.getPropertyValue('--ax-motion-duration-' + name).trim().toLowerCase();
++    const value = Number.parseFloat(raw);
++    if (!Number.isFinite(value) || value < 0) return fallback;
++    return raw.endsWith('ms') ? value : raw.endsWith('s') ? value * 1000 : fallback;
++  };
+   const curve = (name: string) => {
+     const values = style.getPropertyValue('--ax-motion-easing-' + name).match(/[\d.]+/g)?.map(Number);
+     return values?.length === 4 ? cubicBezier(values[0], values[1], values[2], values[3]) : cubicBezier(.2, 0, 0, 1);

@@ -1319,7 +1319,9 @@ function startServer(options = {}) {
       console.log(`\n  Listening on http://${HOST}:${actualPort}`);
       if (shouldOpenBrowser && !openBrowser(sessionUrl)) console.log(`  Open this session URL:\n  ${sessionUrl}`);
       console.log("");
-      resolve({ server, port: actualPort, url: sessionUrl, sessionToken: SESSION_TOKEN, close });
+      resolve({ server, port: actualPort, url: sessionUrl, sessionToken: SESSION_TOKEN, close,
+        get busy() { return activeOperation !== null || cleanupFailure !== null; },
+      });
     });
   });
 }

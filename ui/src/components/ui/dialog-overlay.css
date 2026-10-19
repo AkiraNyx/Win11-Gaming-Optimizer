@@ -1,0 +1,19 @@
+/* Keep application chrome outside the embedded modal interaction boundary. */
+.optimizer-dialog-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  background: var(--ax-color-backdrop);
+  backdrop-filter: blur(7px);
+  opacity: 1;
+  transition: opacity var(--ax-motion-duration-base) var(--ax-motion-easing-standard);
+}
+.optimizer-dialog-backdrop[data-motion-state="closing"] { opacity: 0; }
+@starting-style { .optimizer-dialog-backdrop { opacity: 0; } }
+.optimizer-theme .optimizer-dialog {
+  position: fixed;
+  z-index: 101;
+  inset: var(--optimizer-dialog-top, 0px) 0 0;
+  max-height: calc(100dvh - var(--optimizer-dialog-top, 0px) - 32px);
+}
+@media (prefers-reduced-motion: reduce) { .optimizer-dialog-backdrop { transition: none; } }

@@ -1,9 +1,9 @@
 ﻿'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Loader2, Play, RefreshCw, X } from "lucide-react";
-import { MotionConfig } from "motion/react";
 import { Button } from "@/components/ui/button";
+import { AnimatedCollapse, AnimatedSwitch } from "@/components/ui/animated-region";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ClientOnly } from "@/components/client-only";
 import { Footer } from "@/components/layout/footer";
@@ -34,7 +34,7 @@ const PRESET_LABELS: Record<Exclude<ConfigPresetLevel, "custom">, string> = {
 };
 
 function canReceiveFocus(target: HTMLElement | null): target is HTMLElement {
-  if (!target?.isConnected || target.getAttribute("aria-disabled") === "true") return false;
+  if (!target?.isConnected || target.getAttribute("aria-disabled") === "true" || target.closest("[inert],[hidden],[aria-hidden='true']") || !target.getClientRects().length) return false;
   return !(target instanceof HTMLButtonElement) || !target.disabled;
 }
 
@@ -67,6 +67,8 @@ export default function Home() {
   const [uninstallOpen, setUninstallOpen] = useState(false);
   const [discardConfigOpen, setDiscardConfigOpen] = useState(false);
   const [pendingPreset, setPendingPreset] = useState<Exclude<ConfigPresetLevel, "custom"> | null>(null);
+  const [presetOpen, setPresetOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
   const [statusRequestSource, setStatusRequestSource] = useState<"current" | string | null>(null);
   const [runtimeCapabilities, setRuntimeCapabilities] = useState<RuntimeCapabilities | null>(null);
   const [runtimeError, setRuntimeError] = useState(false);
@@ -81,6 +83,7 @@ export default function Home() {
   const runtimeLogTriggerRef = useRef<HTMLElement | null>(null);
   const uninstallTriggerRef = useRef<HTMLElement | null>(null);
   const currentPresetRef = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => { if (mainRef.current) mainRef.current.scrollTop = 0; }, [activeCategory]);
   const statusRequestInFlightRef = useRef(false);
   const runtimeRequestIdRef = useRef(0);
   const runtimePollIdRef = useRef(0);
@@ -173,6 +176,7 @@ export default function Home() {
 
   const refreshForAction = async (source: "current" | string) => {
     if (statusRequestInFlightRef.current || statusLoading) return null;
+    pendingFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : currentPresetRef.current;
     statusRequestInFlightRef.current = true;
     setStatusRequestSource(source);
     try {
@@ -192,6 +196,7 @@ export default function Home() {
     }
     presetTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setPendingPreset(preset);
+    setPresetOpen(true);
   };
 
   const rememberTrigger = (triggerRef: { current: HTMLElement | null }) => {
@@ -225,13 +230,13 @@ export default function Home() {
     const [status] = await Promise.all([refreshStatus(), refreshRestoreAvailability()]);
     return status !== null;
   }, [refreshRestoreAvailability, refreshStatus]);
-  useEffect(() => {
-    if (interactionBusy || !pendingFocusRef.current) return;
+  useLayoutEffect(() => {
+    if (interactionBusy || runtimeLoading || !pendingFocusRef.current) return;
     const target = pendingFocusRef.current;
     pendingFocusRef.current = null;
     const focusTarget = canReceiveFocus(target) ? target : currentPresetRef.current;
     if (canReceiveFocus(focusTarget)) focusTarget.focus();
-  }, [interactionBusy]);
+  }, [interactionBusy, runtimeLoading]);
   const handleCategorySync = async (categoryId: string) => {
     const freshStatus = await refreshForAction(categoryId);
     if (freshStatus) syncCategoryToCurrent(categoryId, freshStatus);
@@ -239,7 +244,6 @@ export default function Home() {
 
   return (
     <ClientOnly>
-      <MotionConfig reducedMotion="user">
       <div className="optimizer-app">
         <Header
           onExport={() => { rememberTrigger(exportTriggerRef); setExportOpen(true); }}
@@ -281,11 +285,14 @@ export default function Home() {
             </div>
           </div>
         </div>
+        <AnimatedCollapse open={interactionBusy}>
         {interactionBusy ? (
           <div className="flex items-center gap-2 border-b border-primary/20 bg-primary/5 px-4 py-2 text-xs text-foreground lg:px-6" role="status" aria-live="polite">
             <Loader2 className="size-3.5 animate-spin" />正在读取系统状态，请稍候…
           </div>
         ) : null}
+        </AnimatedCollapse>
+        <AnimatedCollapse open={!!configError}>
         {configError ? (
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-destructive lg:px-6" role={configurationLocked ? "alert" : "status"}>
             <span>{configError}</span>
@@ -300,6 +307,8 @@ export default function Home() {
             ) : null}
           </div>
         ) : null}
+        </AnimatedCollapse>
+        <AnimatedCollapse open={!!categorySyncError}>
         {categorySyncError ? (
           <div className="flex items-center justify-between gap-2 border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-destructive lg:px-6" role="alert">
             <span>{categorySyncError.message}</span>
@@ -307,18 +316,22 @@ export default function Home() {
               type="button"
               variant="ghost"
               size="icon-xs"
-              onClick={() => clearCategorySyncError(categorySyncError.categoryId)}
+              onClick={() => { clearCategorySyncError(categorySyncError.categoryId); returnFocus(currentPresetRef); }}
               aria-label="关闭分类同步错误"
             >
               <X className="size-3.5" />
             </Button>
           </div>
         ) : null}
+        </AnimatedCollapse>
+        <AnimatedCollapse open={!!statusError}>
         {statusError ? (
           <div className="border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-destructive lg:px-6" role="alert">
             系统状态读取失败，请选择“当前”重试。
           </div>
         ) : null}
+        </AnimatedCollapse>
+        <AnimatedCollapse open={!!(runtimeError || (runtimeCapabilities && !runtimeCapabilities.mutationsEnabled))}>
         {(runtimeError || (runtimeCapabilities && !runtimeCapabilities.mutationsEnabled)) ? (
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-300 lg:px-6" role={runtimeError ? "alert" : "status"}>
             <span>{mutationDisabledMessage}</span>
@@ -327,7 +340,7 @@ export default function Home() {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => { void pollRuntimeCapabilities(); }}
+                onClick={() => { pendingFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : currentPresetRef.current; void pollRuntimeCapabilities(); }}
                 disabled={runtimeLoading}
               >
                 <RefreshCw className={runtimeLoading ? "size-3.5 animate-spin" : "size-3.5"} />
@@ -336,12 +349,15 @@ export default function Home() {
             ) : null}
           </div>
         ) : null}
+        </AnimatedCollapse>
+        <AnimatedCollapse open={(!statusLoading || !!statusError) && changes.unavailable > 0}>
         {(!statusLoading || !!statusError) && changes.unavailable > 0 ? (
           <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-300 lg:px-6" role="status">
             <AlertTriangle className="size-3.5 shrink-0" />
             <span>部分项目状态未知，已保留原目标并暂停执行（{changes.unavailable} 项）。重新读取成功前，此提示会持续显示。</span>
           </div>
         ) : null}
+        </AnimatedCollapse>
         <div className="optimizer-workspace">
           <Sidebar
             activeCategory={activeCategory}
@@ -352,8 +368,9 @@ export default function Home() {
             logOpen={runtimeLogOpen}
             disabled={interactionBusy}
           />
-          <main className="optimizer-main thin-scroll" aria-busy={interactionBusy}>
-              <div key={activeCategory} className="optimizer-category">
+          <main ref={mainRef} className="optimizer-main thin-scroll" aria-busy={interactionBusy}>
+              <AnimatedSwitch identity={activeCategory} order={categories.findIndex(category => category.id === activeCategory)}>
+              <div className="optimizer-category">
                 {currentCategory && (
                   <CategoryPanel
                     category={currentCategory}
@@ -367,6 +384,7 @@ export default function Home() {
                   />
                 )}
               </div>
+              </AnimatedSwitch>
           </main>
         </div>
         <Footer runtime={runtimeCapabilities} loading={runtimeLoading} />
@@ -376,9 +394,10 @@ export default function Home() {
         <RestoreDialog open={restoreOpen} onOpenChange={setRestoreOpen} availability={restoreAvailability} onRefreshAvailability={refreshRestoreAvailability} onComplete={handleStatusRefreshComplete} onReturnFocus={() => returnFocus(restoreTriggerRef)} />
         <RuntimeLogDialog open={runtimeLogOpen} onOpenChange={setRuntimeLogOpen} onReturnFocus={() => returnFocus(runtimeLogTriggerRef)} />
         <UninstallDialog open={uninstallOpen} onOpenChange={setUninstallOpen} availability={restoreAvailability} disabledReason={restoreDisabledReason} onRefreshAvailability={refreshRestoreAvailability} onComplete={handleStatusRefreshComplete} onReturnFocus={() => returnFocus(uninstallTriggerRef)} />
-        <Dialog open={pendingPreset !== null} onOpenChange={(open) => { if (!open) setPendingPreset(null); }}>
+        <Dialog open={presetOpen} onOpenChange={setPresetOpen}>
           <DialogContent
             className="sm:max-w-md"
+            onAfterClose={() => setPendingPreset(null)}
             onCloseAutoFocus={(event) => {
               event.preventDefault();
               presetTriggerRef.current?.focus();
@@ -397,10 +416,10 @@ export default function Home() {
               </dl>
             ) : null}
             <DialogFooter>
-              <Button variant="outline" onClick={() => setPendingPreset(null)}>取消</Button>
+              <Button variant="outline" onClick={() => setPresetOpen(false)}>取消</Button>
               <Button onClick={() => {
                 if (pendingPreset) applyPreset(pendingPreset);
-                setPendingPreset(null);
+                setPresetOpen(false);
               }}>应用预设</Button>
             </DialogFooter>
           </DialogContent>
@@ -430,7 +449,6 @@ export default function Home() {
           </DialogContent>
         </Dialog>
       </div>
-      </MotionConfig>
     </ClientOnly>
   );
 }

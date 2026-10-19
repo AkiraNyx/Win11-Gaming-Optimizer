@@ -214,6 +214,7 @@ test("backend safety behaviors", { timeout: 75_000 }, async (context) => {
   assert.notEqual(port, app.PORT);
   assert.equal(startedServer.url, `http://${app.HOST}:${port}/#session=${app.SESSION_TOKEN}`);
   assert.equal(startedServer.sessionToken, app.SESSION_TOKEN);
+  assert.equal(startedServer.busy, false, "idle reads must not block the native window close");
 
   try {
     const unauthenticated = await request(port, "/api/status");
@@ -318,6 +319,7 @@ test("backend safety behaviors", { timeout: 75_000 }, async (context) => {
     assert.equal(JSON.parse(emptyUninstall.body).code, "NO_RESTORE_RECORD");
     const status = JSON.parse((await request(port, "/api/status", { headers: authHeaders })).body);
     assert.equal(status.running, false);
+    assert.equal(startedServer.busy, false, "denied operations must release the close guard");
   } finally {
     await Promise.all([startedServer.close(), startedServer.close()]);
   }

@@ -78,6 +78,7 @@ async function runMain(options = {}) {
     restore() { this.minimized = false; events.push({ type: "restore" }); }
     maximize() { this.maximized = true; this.emit("maximize"); }
     unmaximize() { this.maximized = false; this.emit("unmaximize"); }
+    setBackgroundColor(color) { this.options.backgroundColor = color; }
     show() { events.push({ type: "show" }); }
     focus() { events.push({ type: "focus" }); }
 
@@ -102,6 +103,9 @@ async function runMain(options = {}) {
 
     close() {
       if (this.destroyed) return;
+      const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+      this.emit("close", event);
+      if (event.defaultPrevented) return;
       this.destroyed = true;
       events.push({ type: "close" });
       this.emit("closed");
@@ -111,6 +115,7 @@ async function runMain(options = {}) {
 
   const app = new EventEmitter();
   app.isPackaged = false;
+  app.getPath = name => { assert.equal(name, "userData"); return ELECTRON_DIR; };
   app.requestSingleInstanceLock = () => true;
   app.whenReady = () => Promise.resolve();
   app.quit = () => { quitCalls++; events.push({ type: "quit" }); };
@@ -119,7 +124,7 @@ async function runMain(options = {}) {
     app,
     BrowserWindow: FakeBrowserWindow,
     dialog: { showErrorBox: (title, detail) => events.push({ type: "dialog", title, detail }) },
-    ipcMain: { on: (channel, handler) => ipcHandlers.set(channel, handler) },
+    ipcMain: { on: (channel, handler) => ipcHandlers.set(channel, handler), handle: (channel, handler) => ipcHandlers.set(channel, handler) },
   };
 
   const startServer = async () => {
@@ -128,6 +133,7 @@ async function runMain(options = {}) {
     return {
       url: `http://127.0.0.1:43123/#session=${SESSION_TOKEN}`,
       sessionToken: SESSION_TOKEN,
+      get busy() { return options.backendBusy === true; },
       close: async () => { serverCloseCalls++; events.push({ type: "close-server" }); },
     };
   };
@@ -155,6 +161,10 @@ async function runMain(options = {}) {
     process,
     require: (request) => {
       if (request === "electron") return electron;
+      if (request === "./theme-store.cjs") {
+        let theme = options.theme || "day";
+        return { createThemeStore: () => ({ get: () => theme, set: next => { theme = next; } }) };
+      }
       if (request === "../server.js") {
         events.push({ type: "require-server" });
         return { initializeRuntime, startServer };
@@ -190,7 +200,7 @@ test("Electron startup shows the shell before starting the service and reuses on
   assert.equal(run.windows.length, 1);
   const [window] = run.windows;
   assert.equal(window.options.show, true);
-  assert.equal(window.options.backgroundColor, "#0a0a0a");
+  assert.equal(window.options.backgroundColor, "#fdfaf4");
   assert.equal(window.listenerCount("ready-to-show"), 0);
   assert.deepEqual(window.loaded, [SHELL_URL, "http://127.0.0.1:43123/#startup"]);
   assert.equal(window.webContents.beforeSendHeadersFilter.urls.length, 1);
@@ -319,7 +329,7 @@ test("preload exposes only wrapped window and startup APIs", () => {
     },
   }, { filename: PRELOAD_PATH });
 
-  assert.deepEqual(Object.keys(exposed).sort(), ["close", "minimize", "onMaximizeChange", "onStartupState", "toggleMaximize"]);
+  assert.deepEqual(Object.keys(exposed).sort(), ["close", "getTheme", "minimize", "onMaximizeChange", "onStartupState", "setCloseBlocked", "setTheme", "toggleMaximize"]);
   exposed.minimize();
   assert.deepEqual(sent, ["win11optimizer:window-minimize"]);
 
@@ -373,9 +383,10 @@ test("startup shell keeps progress and failure states accessible", () => {
   assert.match(html, /role="progressbar"/);
   assert.match(html, /role="alert"/);
   assert.match(html, /prefers-reduced-motion: reduce/);
-  assert.match(html, /animation: startup-shell-enter 180ms ease-out both/);
+  assert.match(html, /animation: startup-shell-enter var\(--ax-motion-duration-base\)/);
   assert.equal((html.match(/class="progress-segment"/g) || []).length, 4);
-  assert.equal(fs.existsSync(path.join(ELECTRON_DIR, "geist-sans.woff2")), true);
+  assert.equal(fs.existsSync(path.join(ELECTRON_DIR, "arinox/assets/fonts/inter-latin-wght-normal.woff2")), true);
+  assert.equal(fs.existsSync(path.join(ELECTRON_DIR, "arinox/assets/fonts/newsreader-latin-opsz-normal.woff2")), true);
   assert.match(script, /errorDetail\.textContent =/);
   assert.doesNotMatch(script, /innerHTML/);
   assert.match(script, /minimizeButton\.addEventListener\("click", \(\) => api\.minimize\(\)\)/);
@@ -388,17 +399,20 @@ test("startup shell keeps progress and failure states accessible", () => {
   assert.doesNotThrow(() => new vm.Script(script));
 });
 
-test("preload keeps the startup handoff visible until initial status loading settles", () => {
+test("preload keeps the startup handoff visible until initial status loading and its exit transition settle", async () => {
   const source = fs.readFileSync(PRELOAD_PATH, "utf8");
   const elements = [];
   let observerCallback;
   let applicationReady = false;
   let exposed;
+  let finishTransition;
+  const transitionFinished = new Promise(resolve => { finishTransition = resolve; });
 
   function fakeElement(tagName) {
     const element = {
       tagName,
       children: [],
+      dataset: {},
       attributes: new Map(),
       className: "",
       id: "",
@@ -414,6 +428,7 @@ test("preload keeps the startup handoff visible until initial status loading set
       append(...children) { this.children.push(...children); },
       remove() { this.removed = true; },
       setAttribute(name, value) { this.attributes.set(name, value); },
+      getAnimations() { return [{ finished: transitionFinished }]; },
     };
     elements.push(element);
     return element;
@@ -438,6 +453,7 @@ test("preload keeps the startup handoff visible until initial status loading set
     location: { protocol: "http:", hostname: "127.0.0.1", hash: "#startup" },
     matchMedia: () => ({ matches: false }),
     requestAnimationFrame: (callback) => { callback(); return 1; },
+    addEventListener() {},
   };
 
   vm.runInNewContext(source, {
@@ -466,6 +482,114 @@ test("preload keeps the startup handoff visible until initial status loading set
   observerCallback();
   assert.equal(overlay.classList.contains("is-leaving"), true);
   assert.equal(overlay.removed, false);
-  overlay.listeners.get("transitionend")();
+  finishTransition();
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(overlay.removed, true);
+});
+
+test("native theme IPC validates the sender and value and restores the saved startup background", async () => {
+  const run = await runMain({ theme: "night" });
+  const window = run.windows[0];
+  assert.equal(window.options.backgroundColor, "#070a12");
+  const trusted = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
+  run.ipcHandlers.get("win11optimizer:theme-read")(trusted);
+  assert.equal(trusted.returnValue, "night");
+  const save = run.ipcHandlers.get("win11optimizer:theme-save");
+  assert.equal(await save({ ...trusted, senderFrame: { frameTreeNodeId: 99, url: "https://example.invalid" } }, "day"), false);
+  assert.equal(await save(trusted, "invalid"), false);
+  assert.equal(window.options.backgroundColor, "#070a12");
+  assert.equal(await save(trusted, "day"), true);
+  assert.equal(window.options.backgroundColor, "#fdfaf4");
+});
+
+test("window state snapshots and close protection require the trusted main renderer", async () => {
+  const options = { backendBusy: false };
+  const run = await runMain(options);
+  const window = run.windows[0];
+  const trusted = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
+  const untrusted = { sender: window.webContents, senderFrame: { url: SHELL_URL, frameTreeNodeId: 99 } };
+  const read = run.ipcHandlers.get("win11optimizer:window-maximize-read");
+  const setBlocked = run.ipcHandlers.get("win11optimizer:window-close-blocked");
+  window.maximize();
+  read(trusted);
+  assert.equal(trusted.returnValue, true);
+  read(untrusted);
+  assert.equal(untrusted.returnValue, undefined);
+  setBlocked(untrusted, true);
+  assert.equal(untrusted.returnValue, false);
+  setBlocked(trusted, "true");
+  assert.equal(trusted.returnValue, false);
+  setBlocked(trusted, true);
+  assert.equal(trusted.returnValue, true);
+
+  run.ipcHandlers.get("win11optimizer:window-close")(trusted);
+  window.close(); // Covers native close/Alt+F4 using the same BrowserWindow close event.
+  assert.equal(window.isDestroyed(), false);
+  run.ipcHandlers.get("win11optimizer:window-minimize")(trusted);
+  assert.equal(window.minimized, true);
+  run.ipcHandlers.get("win11optimizer:window-toggle-maximize")(trusted);
+  assert.equal(window.maximized, false);
+  let quitPrevented = false;
+  run.app.emit("before-quit", { preventDefault() { quitPrevented = true; } });
+  assert.equal(quitPrevented, true);
+  assert.equal(run.serverCloseCalls, 0);
+
+  setBlocked(trusted, false);
+  options.backendBusy = true;
+  window.close();
+  assert.equal(window.isDestroyed(), false);
+  run.app.emit("before-quit", { preventDefault() {} });
+  assert.equal(run.serverCloseCalls, 0);
+  options.backendBusy = false;
+  window.close();
+  await waitFor(() => run.quitCalls === 1);
+  assert.equal(run.serverCloseCalls, 1);
+});
+
+test("preload replays early maximize state and guards busy reload without exposing IPC events", () => {
+  const ipcListeners = new Map();
+  const windowListeners = new Map();
+  const commands = [];
+  let exposed;
+  vm.runInNewContext(fs.readFileSync(PRELOAD_PATH, "utf8"), {
+    window: { location: { protocol: "file:" }, addEventListener: (name, listener) => windowListeners.set(name, listener) },
+    require: () => ({
+      contextBridge: { exposeInMainWorld: (_name, value) => { exposed = value; } },
+      ipcRenderer: {
+        on: (name, listener) => ipcListeners.set(name, listener),
+        removeListener() {},
+        send() {},
+        sendSync: (name, value) => {
+          if (name === "win11optimizer:window-maximize-read") return true;
+          if (name === "win11optimizer:window-close-blocked") { commands.push(value); return true; }
+          return "day";
+        },
+      },
+    }),
+  }, { filename: PRELOAD_PATH });
+
+  const states = [];
+  let off = exposed.onMaximizeChange((...args) => states.push(args));
+  assert.deepEqual(states, [[true]]);
+  off();
+  ipcListeners.get("win11optimizer:window-maximize-changed")({ secret: "must not escape" }, false);
+  off = exposed.onMaximizeChange((...args) => states.push(args));
+  assert.deepEqual(states, [[true], [false]]);
+  ipcListeners.get("win11optimizer:window-maximize-changed")({}, true);
+  assert.deepEqual(states, [[true], [false], [true]]);
+  off();
+  ipcListeners.get("win11optimizer:window-maximize-changed")({}, false);
+  assert.equal(states.length, 3);
+
+  assert.equal(exposed.setCloseBlocked("true"), false);
+  assert.equal(exposed.setCloseBlocked(true), true);
+  const blocked = { prevented: false, preventDefault() { this.prevented = true; } };
+  windowListeners.get("beforeunload")(blocked);
+  assert.equal(blocked.prevented, true);
+  assert.equal(blocked.returnValue, false);
+  assert.equal(exposed.setCloseBlocked(false), true);
+  const idle = { prevented: false, preventDefault() { this.prevented = true; } };
+  windowListeners.get("beforeunload")(idle);
+  assert.equal(idle.prevented, false);
+  assert.deepEqual(commands, [true, false]);
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AnimatedCollapse } from "@/components/ui/animated-region";
 import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -83,7 +84,7 @@ export function CategoryPanel({
                 aria-expanded={expanded}
                 aria-label={expanded ? `收起${category.name}` : `展开${category.name}`}
               >
-                <ChevronDown className={expanded ? "size-4 rotate-180" : "size-4"} />
+                <ChevronDown className={`optimizer-disclosure-chevron size-4${expanded ? " rotate-180" : ""}`} />
               </Button>
             </TooltipTrigger>
             <TooltipContent>{expanded ? "收起" : "展开"}</TooltipContent>
@@ -91,7 +92,7 @@ export function CategoryPanel({
         </div>
       </div>
 
-        {expanded ? (
+        <AnimatedCollapse open={expanded}>
           <div className="optimizer-item-list">
             {category.items.map((item) => (
               <OptimizationItemRow
@@ -112,7 +113,7 @@ export function CategoryPanel({
               />
             ))}
           </div>
-        ) : null}
+        </AnimatedCollapse>
     </section>
   );
 }

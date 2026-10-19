@@ -9,6 +9,7 @@ out/
 
 # Production
 build-electron/
+ui/electron/arinox/
 dist/
 
 # Local package caches
@@ -46,3 +47,7 @@ Thumbs.db
 
 # Config output
 config/output/
+
+# Local verification artifacts and PowerShell module cache
+work/
+ui/Microsoft/

@@ -22,6 +22,7 @@ interface ConfirmToggleDialogProps {
   warning: TransitionWarning;
   onConfirm: () => void;
   onReturnFocus?: () => void;
+  onAfterClose?: () => void;
 }
 
 export function ConfirmToggleDialog({
@@ -33,6 +34,7 @@ export function ConfirmToggleDialog({
   warning,
   onConfirm,
   onReturnFocus,
+  onAfterClose,
 }: ConfirmToggleDialogProps) {
   const isCommand = item.control === "command";
 
@@ -40,6 +42,7 @@ export function ConfirmToggleDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="sm:max-w-[440px]"
+        onAfterClose={onAfterClose}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           onReturnFocus?.();

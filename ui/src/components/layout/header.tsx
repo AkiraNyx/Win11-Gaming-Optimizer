@@ -23,7 +23,7 @@ function DisabledAction({ reason, label, children }: { reason?: string; label: s
 export function Header({ onExport, onImport, onReset, onRestore, onUninstall, configActionsDisabled, disabled = false, disabledReason, mutationDisabled = false, mutationDisabledReason, uninstallDisabled = false, uninstallDisabledReason }: HeaderProps) {
   const electronWindow = typeof window === "undefined" ? undefined : window.win11Optimizer;
   const [maximized, setMaximized] = useState(false);
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, themeError } = useTheme();
   useEffect(() => electronWindow?.onMaximizeChange(setMaximized), [electronWindow]);
   const restoreReason = disabled ? disabledReason : mutationDisabled ? mutationDisabledReason : undefined;
   const undoReason = disabled ? disabledReason : mutationDisabled ? mutationDisabledReason : uninstallDisabled ? uninstallDisabledReason : undefined;
@@ -32,14 +32,15 @@ export function Header({ onExport, onImport, onReset, onRestore, onUninstall, co
       <div className="optimizer-brand"><span className="optimizer-brand-mark"><Gamepad2 className="size-5" /></span>
         <div><h1>Win11 Optimizer</h1><p>让系统，回到适合你的状态。</p></div>
       </div>
-      <div className="electron-no-drag ml-auto flex items-center gap-2">
-        <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label={theme === "day" ? "切换夜间主题" : "切换日间主题"} title={theme === "day" ? "夜间主题" : "日间主题"}>
+      <div className="optimizer-titlebar-actions electron-no-drag">
+        {themeError && <span className="max-w-48 text-xs text-destructive" role="status">{themeError}</span>}
+        <Button variant="ghost" size="icon-lg" className="optimizer-titlebar-button" onClick={toggleTheme} aria-label={theme === "day" ? "切换夜间主题" : "切换日间主题"} title={theme === "day" ? "夜间主题" : "日间主题"}>
           {theme === "day" ? <Moon className="size-4" /> : <Sun className="size-4" />}
         </Button>
         {electronWindow && <div className="optimizer-window-controls" aria-label="窗口控制">
-          <Button variant="ghost" size="icon-lg" onClick={() => electronWindow.minimize()} aria-label="最小化窗口"><Minus className="size-4" /></Button>
-          <Button variant="ghost" size="icon-lg" onClick={() => electronWindow.toggleMaximize()} aria-label={maximized ? "还原窗口" : "最大化窗口"}>{maximized ? <Copy className="size-3.5" /> : <Square className="size-3.5" />}</Button>
-          <Button variant="ghost" size="icon-lg" onClick={() => electronWindow.close()} aria-label="关闭窗口" className="optimizer-window-close"><X className="size-4" /></Button>
+          <Button variant="ghost" size="icon-lg" className="optimizer-titlebar-button" onClick={() => electronWindow.minimize()} aria-label="最小化窗口"><Minus className="size-4" /></Button>
+          <Button variant="ghost" size="icon-lg" className="optimizer-titlebar-button" onClick={() => electronWindow.toggleMaximize()} aria-label={maximized ? "还原窗口" : "最大化窗口"}>{maximized ? <Copy className="size-3.5" /> : <Square className="size-3.5" />}</Button>
+          <Button variant="ghost" size="icon-lg" onClick={() => electronWindow.close()} aria-label="关闭窗口" className="optimizer-titlebar-button optimizer-window-close"><X className="size-4" /></Button>
         </div>}
       </div>
     </div>

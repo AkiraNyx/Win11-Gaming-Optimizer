@@ -1,6 +1,7 @@
 @layer theme, base, arinox, components, utilities;
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "../styles/titlebar.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -52,36 +53,29 @@
 }
 .optimizer-app { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: radial-gradient(ellipse at 85% 0, var(--fx-horizon), transparent 48%), var(--background); }
 .optimizer-eyebrow { font: 500 11px/1.5 var(--ax-font-family-sans); letter-spacing: .08em; color: var(--ax-color-text-subtle); }
-.optimizer-header { flex-shrink: 0; padding: 0 24px; }
-.optimizer-titlebar { min-height: 84px; display: flex; align-items: center; gap: 16px; }
-.optimizer-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.optimizer-brand-mark { width: 40px; height: 40px; display: grid; place-items: center; background: var(--fx-paper); border: 1px solid var(--border); border-radius: var(--fx-radius-control); color: var(--ax-color-accent-text); }
-.optimizer-brand h1 { font: 500 25px/1.2 var(--ax-font-family-display); letter-spacing: -.025em; margin: 0; }
-.optimizer-brand p { margin-top: 4px; font-size: 11px; color: var(--muted-foreground); }
 .optimizer-actionbar { border-radius: var(--fx-radius-popover); padding: 10px 14px; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .optimizer-actionbar-label { margin-right: 6px; }
 .optimizer-recovery-actions { display: flex; gap: 8px; margin-left: auto; }
-.optimizer-window-controls { display: flex; }
-.optimizer-theme .optimizer-window-controls .optimizer-button { border-radius: 0; height: 40px; }
-.optimizer-theme .optimizer-window-close:hover { background: var(--ax-color-danger); color: var(--ax-color-danger-fg); }
 .optimizer-toolbar { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; padding: 20px 26px; }
 .optimizer-presets { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .optimizer-workspace { flex: 1; min-height: 0; display: flex; padding: 0 24px 16px; gap: 24px; }
-.optimizer-sidebar { width: 218px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; padding-top: 8px; }
-.optimizer-sidebar-heading { display: flex; justify-content: space-between; padding: 0 12px 12px; }
-.optimizer-navigation { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 3px; padding: 2px; }
+.optimizer-sidebar { width: 218px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; overflow: auto; padding-top: 8px; }
+.optimizer-sidebar-heading { flex-shrink: 0; display: flex; justify-content: space-between; padding: 0 12px 12px; }
+.optimizer-navigation { flex: 1 0 96px; min-height: 96px; overflow: auto; display: flex; flex-direction: column; gap: 3px; padding: 2px; }
 .optimizer-nav-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 38px; border-radius: var(--fx-radius-control); padding: 8px 12px; border: 1px solid transparent; font-size: 13px; text-align: left; color: var(--muted-foreground); cursor: pointer; transition: background-color var(--ax-motion-duration-fast), color var(--ax-motion-duration-fast); }
 .optimizer-nav-item:hover { background: var(--ax-color-state-hover); color: var(--foreground); }
+.optimizer-nav-item:focus-visible { background: var(--ax-color-state-hover); color: var(--foreground); outline: 2px solid var(--ax-color-focus-ring); outline-offset: -2px; }
 .optimizer-nav-item:disabled { opacity: .5; cursor: not-allowed; }
 .optimizer-nav-item.is-active { color: var(--ax-color-accent-text); background: var(--ax-color-accent-subtle); box-shadow: var(--ax-shadow-lit-row); border-color: color-mix(in srgb, var(--ax-color-accent-text) 15%, transparent); }
 .optimizer-nav-count { margin-left: auto; font: 11px var(--ax-font-family-mono); padding: 1px 6px; border-color: currentColor; opacity: .8; }
-.optimizer-hardware { padding: 16px 12px; border-top: 1px solid var(--border); margin-top: 14px; }
+.optimizer-hardware { flex: 0 1 auto; min-height: 48px; overflow: auto; padding: 16px 12px; border-top: 1px solid var(--border); margin-top: 14px; }
 .optimizer-hardware dl { display: grid; gap: 10px; margin-top: 12px; }
 .optimizer-hardware dl > div { min-width: 0; }
 .optimizer-hardware dt { display: flex; align-items: center; gap: 6px; color: var(--muted-foreground); font-size: 11px; margin-bottom: 3px; }
 .optimizer-hardware dd { font-size: 12px; margin: 0; }
 .optimizer-hardware-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.optimizer-log-button { border-top: 1px solid var(--border); border-radius: 0; padding-top: 12px; flex-shrink: 0; }
+.optimizer-log-button { position: relative; border-top-color: transparent; padding-top: 12px; flex-shrink: 0; }
+.optimizer-log-button::before { content: ""; position: absolute; inset: 0 0 auto; height: 1px; background: var(--border); pointer-events: none; }
 .optimizer-main { flex: 1; min-width: 0; min-height: 0; overflow: auto; border-radius: var(--fx-radius-panel); background: var(--fx-paper); border: 1px solid var(--border); box-shadow: var(--ax-shadow-sm); }
 .optimizer-category { padding: 28px 30px; }
 .optimizer-category-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-bottom: 24px; }
@@ -89,9 +83,18 @@
 .optimizer-category-header p { max-width: 64ch; font-size: 13px; line-height: 1.8; margin-top: 6px; color: var(--muted-foreground); }
 .optimizer-category-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .optimizer-item-list { display: grid; gap: 0; }
-.optimizer-item { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 24px; padding: 20px 0; border-top: 1px solid var(--border); }
+.optimizer-collapse { overflow: hidden; flex-shrink: 0; }
+.optimizer-collapse-content { display: flow-root; }
+.optimizer-content-switch { position: relative; min-width: 0; isolation: isolate; }
+.optimizer-switch-scene { min-width: 0; }
+.optimizer-switch-scene.is-leaving { position: absolute; inset: 0; pointer-events: none; }
+.optimizer-disclosure-chevron { transition: rotate var(--ax-motion-duration-base) var(--ax-motion-easing-standard); }
+.optimizer-hardware summary { display: flex; align-items: center; gap: 4px; list-style: none; }
+.optimizer-hardware summary::-webkit-details-marker { display: none; }
+.optimizer-item { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 24px; padding: 20px 0; border-top: 1px solid var(--border); }
 .optimizer-item:first-child { border-top: 1px solid var(--border); }
-.optimizer-item:hover { background: color-mix(in srgb, var(--ax-color-state-hover) 40%, transparent); }
+.optimizer-item::before { content: ""; position: absolute; z-index: -1; inset: 4px 0; border-radius: var(--fx-radius-control); background: transparent; pointer-events: none; transition: background-color var(--ax-motion-duration-fast) var(--ax-motion-easing-standard); }
+.optimizer-item:hover::before, .optimizer-item:focus-within::before { background: color-mix(in srgb, var(--ax-color-state-hover) 40%, transparent); }
 .optimizer-item .ax-switch { cursor: pointer; width: 34px; height: 20px; }
 .optimizer-item .ax-switch::before { width: 16px; height: 16px; }
 .optimizer-item .ax-switch:checked::before { transform: translateX(14px); }
@@ -103,10 +106,11 @@
 .optimizer-footer { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: 12px; padding: 10px 26px 14px; font-size: 11px; color: var(--muted-foreground); }
 .optimizer-footer-divider { margin-inline: 6px; color: var(--ax-color-border-strong); }
 .optimizer-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ax-color-text-subtle); }
-.optimizer-theme .optimizer-button { font-size: 12px; }
+.optimizer-theme .optimizer-button { font-size: 12px; --optimizer-control-size: 36px; }
 .optimizer-theme .optimizer-button[data-size="md"] { height: 36px; }
-.optimizer-theme .optimizer-button[data-size="sm"] { height: 30px; padding-inline: 10px; }
-.optimizer-theme .optimizer-icon-button { padding: 0; width: 32px; flex-shrink: 0; }
+.optimizer-theme .optimizer-button[data-size="sm"] { --optimizer-control-size: 30px; height: 30px; padding-inline: 10px; }
+.optimizer-theme .optimizer-button[data-size="lg"] { --optimizer-control-size: 40px; }
+.optimizer-theme .optimizer-icon-button { padding: 0; width: var(--optimizer-control-size); height: var(--optimizer-control-size); flex-shrink: 0; }
 .optimizer-theme .optimizer-button svg { flex-shrink: 0; }
 .optimizer-theme .optimizer-dialog { margin: auto; border-radius: var(--fx-radius-glass); padding: 28px; }
 .optimizer-dialog-body { display: grid; gap: 20px; }
@@ -114,7 +118,6 @@
 .optimizer-dialog-footer { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding-top: 16px; border-top: 1px solid var(--border); }
 .optimizer-theme [role="log"] { background: #10151e; color: #e9eefb; border-radius: var(--fx-radius-control); }
 .optimizer-theme [role="log"] .text-primary { color: #8dceee; }
-.optimizer-theme .optimizer-tooltip { background: var(--ax-color-surface-raised); color: var(--foreground); border: 1px solid var(--border); box-shadow: var(--ax-shadow-md); border-radius: var(--fx-radius-control); }
 .thin-scroll { scrollbar-width: thin; scrollbar-color: var(--fx-scrollbar) transparent; }
 .thin-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
 .thin-scroll::-webkit-scrollbar-thumb { background: var(--fx-scrollbar); border-radius: 8px; }
@@ -129,8 +132,6 @@
 @media (max-width: 767px) {
   .optimizer-app { height: auto; min-height: 100dvh; overflow: visible; }
   .optimizer-header { padding: 0 12px; }
-  .optimizer-titlebar { min-height: 72px; }
-  .optimizer-brand h1 { font-size: 22px; }
   .optimizer-actionbar { gap: 8px; padding: 10px; }
   .optimizer-recovery-actions { margin-left: 0; flex-wrap: wrap; }
   .optimizer-toolbar { padding: 18px 14px; }
@@ -141,7 +142,7 @@
   .optimizer-sidebar-heading { display: none; }
   .optimizer-hardware { margin-top: 4px; padding: 12px; }
   .optimizer-hardware dl { grid-template-columns: 1fr 1fr; }
-  .optimizer-navigation { flex-direction: row; min-height: 0; overflow-x: auto; padding-bottom: 8px; }
+  .optimizer-navigation { flex: 0 0 auto; flex-direction: row; min-height: 0; overflow-x: auto; padding-bottom: 8px; }
   .optimizer-navigation .optimizer-nav-item { width: auto; flex-shrink: 0; }
   .optimizer-log-button { width: fit-content; border: 0; padding-block: 6px; }
   .optimizer-main { overflow: visible; }

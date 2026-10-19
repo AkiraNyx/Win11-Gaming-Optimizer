@@ -7,6 +7,7 @@ import { AlertTriangle, CheckCircle2, Info, RotateCcw, Shield, Loader2, XCircle 
 import { apiFetch } from "@/lib/api";
 import { getMutationErrorMessage } from "@/lib/api-errors";
 import { cn } from "@/lib/utils";
+import { useWindowCloseBlock } from "@/hooks/use-window-close-block";
 import type { RestoreAvailabilityState } from "@/types/runtime";
 
 type ResultMessage = {
@@ -28,13 +29,10 @@ export function RestoreDialog({ open, onOpenChange, availability, onRefreshAvail
   const [message, setMessage] = useState<ResultMessage | null>(null);
   const [confirmSystemRestore, setConfirmSystemRestore] = useState(false);
   const loading = loadingMode !== null;
+  useWindowCloseBlock(open && loading);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && loading) return;
-    if (!nextOpen) {
-      setMessage(null);
-      setConfirmSystemRestore(false);
-    }
     onOpenChange(nextOpen);
   };
 
@@ -84,6 +82,7 @@ export function RestoreDialog({ open, onOpenChange, availability, onRefreshAvail
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         className="sm:max-w-md"
+        onAfterClose={() => { setMessage(null); setConfirmSystemRestore(false); }}
         showCloseButton={!loading}
         onCloseAutoFocus={(event) => { event.preventDefault(); onReturnFocus?.(); }}
         onEscapeKeyDown={(event) => { if (loading) event.preventDefault(); }}
@@ -115,19 +114,19 @@ export function RestoreDialog({ open, onOpenChange, availability, onRefreshAvail
               </Button>
             </>
           )}
-          {availability === "loading" ? (
+          {availability === "loading" && !confirmSystemRestore ? (
             <div className="flex items-start gap-2 rounded-md border bg-muted/50 p-3 text-sm text-muted-foreground" role="status">
               <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin" />
               <span>正在检查可恢复记录…</span>
             </div>
           ) : null}
-          {availability === "empty" ? (
+          {availability === "empty" && !confirmSystemRestore ? (
             <div className="flex items-start gap-2 rounded-md border bg-muted/50 p-3 text-sm text-muted-foreground" role="status">
               <Info className="mt-0.5 size-4 shrink-0" />
               <span>尚无可恢复的优化记录。执行优化后，可在此恢复优化前的设置。</span>
             </div>
           ) : null}
-          {availability === "error" ? (
+          {availability === "error" && !confirmSystemRestore ? (
             <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300" role="alert">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <span>无法检查可恢复记录。请稍后重试。</span>

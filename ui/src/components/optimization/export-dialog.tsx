@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Check, Download } from "lucide-react";
@@ -8,18 +8,32 @@ import { Check, Download } from "lucide-react";
 interface ExportDialogProps { open: boolean; onOpenChange: (open: boolean) => void; jsonContent: string; onReturnFocus?: () => void; }
 
 export function ExportDialog({ open, onOpenChange, jsonContent, onReturnFocus }: ExportDialogProps) {
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState("");
+  const [feedback, setFeedback] = useState<{ payload: string; status: "copied" | "error" } | null>(null);
+  const copyVersionRef = useRef(0);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const copied = open && feedback?.payload === jsonContent && feedback.status === "copied";
+  const copyError = open && feedback?.payload === jsonContent && feedback.status === "error";
+  const cancelCopy = useCallback(() => {
+    copyVersionRef.current++;
+    clearTimeout(copyTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    setFeedback(null);
+    return cancelCopy;
+  }, [open, jsonContent, cancelCopy]);
 
   const handleCopy = async () => {
+    cancelCopy();
+    const copyVersion = copyVersionRef.current;
+    setFeedback(null);
     try {
       await navigator.clipboard.writeText(jsonContent);
-      setCopyError("");
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copyVersion !== copyVersionRef.current) return;
+      setFeedback({ payload: jsonContent, status: "copied" });
+      copyTimerRef.current = setTimeout(() => setFeedback(null), 2000);
     } catch {
-      setCopied(false);
-      setCopyError("无法访问剪贴板，请下载 JSON 文件。");
+      if (copyVersion === copyVersionRef.current) setFeedback({ payload: jsonContent, status: "error" });
     }
   };
   const handleDownload = () => {
@@ -39,7 +53,7 @@ export function ExportDialog({ open, onOpenChange, jsonContent, onReturnFocus }:
         <div className="max-h-80 overflow-auto rounded-md border bg-muted/50 p-3">
           <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all">{jsonContent}</pre>
         </div>
-        {copyError ? <p role="alert" className="text-xs text-destructive">{copyError}</p> : null}
+        {copyError ? <p role="alert" className="text-xs text-destructive">无法访问剪贴板，请下载 JSON 文件。</p> : null}
         <DialogFooter className="gap-2">
           <DialogClose asChild><Button variant="outline">关闭</Button></DialogClose>
           <Button variant="outline" onClick={() => { void handleCopy(); }}>{copied ? <><Check className="size-4" />已复制</> : "复制到剪贴板"}</Button>

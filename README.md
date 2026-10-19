@@ -7,7 +7,7 @@
 **为 Windows 11 游戏玩家读取系统状态、规划目标差异，并保留可恢复记录。**
 
 [![Build EXE](https://github.com/AkiraNyx/Win11-Gaming-Optimizer/actions/workflows/build-exe.yml/badge.svg)](https://github.com/AkiraNyx/Win11-Gaming-Optimizer/actions/workflows/build-exe.yml)
-[Dev 0.0.4](https://github.com/AkiraNyx/Win11-Gaming-Optimizer/releases/tag/v0.0.4) · Windows 11 x64 · [AGPL-3.0-only](./LICENSE)
+[Dev 0.0.5](https://github.com/AkiraNyx/Win11-Gaming-Optimizer/releases/tag/v0.0.5) · Windows 11 x64 · [AGPL-3.0-only](./LICENSE)
 
 [快速开始](#快速开始) · [功能与工作方式](#功能与工作方式) · [安全与恢复](#安全与恢复) · [开发与构建](#开发与构建)
 

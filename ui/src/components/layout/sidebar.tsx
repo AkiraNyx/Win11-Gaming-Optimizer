@@ -1,11 +1,13 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { useState } from "react";
+import { AnimatedCollapse } from "@/components/ui/animated-region";
 import { categories } from "@/lib/categories";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { HardwareInfo } from "@/types/hardware";
-import { Download, Zap, ArrowUpDown, Settings, Battery, HardDrive, Cpu, Gauge, Monitor, Wifi, Palette, Shield, Lock, MemoryStick, Terminal } from "lucide-react";
+import { Download, Zap, ArrowUpDown, Settings, Battery, HardDrive, Cpu, Gauge, Monitor, Wifi, Palette, Shield, Lock, MemoryStick, Terminal, ChevronDown } from "lucide-react";
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = { Download, Zap, ArrowUpDown, Settings, Battery, HardDrive, Cpu, Gauge, Monitor, Wifi, Palette, Shield, Lock, MemoryStick };
 interface SidebarProps {
@@ -13,6 +15,8 @@ interface SidebarProps {
   changeCounts: Record<string, number>; hardware: HardwareInfo; logOpen?: boolean; disabled?: boolean;
 }
 export function Sidebar({ activeCategory, onSelect, onShowLog, changeCounts, hardware, logOpen = false, disabled = false }: SidebarProps) {
+  const [expanded, setExpanded] = useState(true);
+  const [detailsOpen, setDetailsOpen] = useState(true);
   const storage = hardware.hasSSD ? `SSD${hardware.hasHDD ? " + HDD" : ""}` : hardware.hasHDD ? "HDD" : "未知";
   const cpu = hardware.cpuName && hardware.cpuName !== "Unknown" ? hardware.cpuName : "未知 CPU";
   const gpu = hardware.gpuName && hardware.gpuName !== "Unknown" ? hardware.gpuName : "未知 GPU";
@@ -30,8 +34,13 @@ export function Sidebar({ activeCategory, onSelect, onShowLog, changeCounts, har
         </button>;
       })}
     </nav>
-    <details className="optimizer-hardware" open>
-      <summary className="optimizer-eyebrow cursor-pointer">这台电脑</summary>
+    <details className="optimizer-hardware" open={detailsOpen}>
+      <summary className="optimizer-eyebrow cursor-pointer" aria-expanded={expanded} onClick={event => {
+        event.preventDefault();
+        if (!expanded) setDetailsOpen(true);
+        setExpanded(value => !value);
+      }}><ChevronDown aria-hidden="true" className={`optimizer-disclosure-chevron size-3${expanded ? "" : " -rotate-90"}`} />这台电脑</summary>
+      <AnimatedCollapse open={expanded} onExited={() => setDetailsOpen(false)}>
       <dl>
         {([{ icon: Cpu, name: "处理器", value: cpu }, { icon: Monitor, name: "显卡", value: gpu }] as const).map(({ icon: Icon, name, value }) => <div key={name}>
           <dt><Icon className="size-3.5" />{name}</dt><Tooltip><TooltipTrigger asChild>
@@ -42,6 +51,7 @@ export function Sidebar({ activeCategory, onSelect, onShowLog, changeCounts, har
           <div><dt><HardDrive className="size-3.5" />存储</dt><dd className="font-mono">{storage}</dd></div></div>
         <div className="text-xs text-muted-foreground">{hardware.cpuCores > 0 ? `${hardware.cpuCores} 个处理器核心` : "核心数未知"}</div>
       </dl>
+      </AnimatedCollapse>
     </details>
     <button type="button" onClick={onShowLog} disabled={disabled} aria-haspopup="dialog" aria-expanded={logOpen} className="optimizer-nav-item optimizer-log-button"><Terminal className="size-4" /><span>运行日志</span><span className="ml-auto text-xs">↗</span></button>
   </aside>;

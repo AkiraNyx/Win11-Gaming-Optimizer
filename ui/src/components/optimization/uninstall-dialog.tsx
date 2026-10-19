@@ -7,6 +7,7 @@ import { Undo2, Loader2, AlertTriangle, CheckCircle2, Info, XCircle } from "luci
 import { apiFetch } from "@/lib/api";
 import { getMutationErrorMessage } from "@/lib/api-errors";
 import { cn } from "@/lib/utils";
+import { useWindowCloseBlock } from "@/hooks/use-window-close-block";
 import type { RestoreAvailabilityState } from "@/types/runtime";
 
 type ResultMessage = {
@@ -27,10 +28,10 @@ interface UninstallDialogProps {
 export function UninstallDialog({ open, onOpenChange, availability, disabledReason, onRefreshAvailability, onComplete, onReturnFocus }: UninstallDialogProps) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<ResultMessage | null>(null);
+  useWindowCloseBlock(open && loading);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && loading) return;
-    if (!nextOpen) setMessage(null);
     onOpenChange(nextOpen);
   };
 
@@ -69,6 +70,7 @@ export function UninstallDialog({ open, onOpenChange, availability, disabledReas
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
+        onAfterClose={() => setMessage(null)}
         className="sm:max-w-md"
         showCloseButton={!loading}
         onCloseAutoFocus={(event) => { event.preventDefault(); onReturnFocus?.(); }}

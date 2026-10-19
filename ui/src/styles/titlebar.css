@@ -1,0 +1,32 @@
+.optimizer-header { flex-shrink: 0; padding: 0 24px; }
+.optimizer-titlebar { min-height: 84px; display: flex; align-items: center; gap: 16px; }
+.optimizer-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.optimizer-brand-mark { width: 40px; height: 40px; flex: none; display: grid; place-items: center; background: var(--fx-paper); border: 1px solid var(--ax-color-border-default); border-radius: var(--fx-radius-control); color: var(--ax-color-accent-text); }
+.optimizer-brand-mark svg { width: 20px; height: 20px; }
+.optimizer-brand h1 { font: 500 25px/1.2 var(--ax-font-family-display); letter-spacing: -.025em; margin: 0; }
+.optimizer-brand p { margin: 4px 0 0; font: 11px/1.5 var(--ax-font-family-sans); color: var(--ax-color-text-muted); }
+.optimizer-titlebar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.optimizer-window-controls { display: flex; gap: 2px; }
+:where(.ax-theme) .optimizer-titlebar .ax-button.optimizer-titlebar-button {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  flex: none;
+  padding: 0;
+  border-radius: var(--fx-radius-control);
+  cursor: default;
+}
+:where(.ax-theme) .optimizer-titlebar .ax-button.optimizer-titlebar-button.optimizer-window-close:hover {
+  --_bg: var(--ax-color-danger);
+  --_fg: var(--ax-color-danger-fg);
+  --arinox-overlay: transparent;
+}
+@media (max-width: 767px) {
+  .optimizer-header { padding: 0 12px; }
+  .optimizer-titlebar { min-height: 72px; }
+  .optimizer-brand h1 { font-size: 22px; }
+}
+@media (pointer: coarse) {
+  :where(.ax-theme) .optimizer-titlebar .ax-button.optimizer-titlebar-button { min-width: 44px; min-height: 44px; }
+}

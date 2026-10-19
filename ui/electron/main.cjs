@@ -4,6 +4,7 @@
 const path = require("path");
 const { pathToFileURL } = require("url");
 const { app, BrowserWindow, dialog, ipcMain } = require("electron");
+const { createThemeStore } = require("./theme-store.cjs");
 
 const STARTUP_SHELL_PATH = path.join(__dirname, "startup-shell.html");
 const STARTUP_SHELL_URL = pathToFileURL(STARTUP_SHELL_PATH).href;
@@ -19,7 +20,11 @@ const IPC = Object.freeze({
   toggleMaximize: "win11optimizer:window-toggle-maximize",
   close: "win11optimizer:window-close",
   maximizeChanged: "win11optimizer:window-maximize-changed",
+  readMaximizeState: "win11optimizer:window-maximize-read",
+  setCloseBlocked: "win11optimizer:window-close-blocked",
   startupState: "win11optimizer:startup-state",
+  readTheme: "win11optimizer:theme-read",
+  saveTheme: "win11optimizer:theme-save",
 });
 
 process.env.OPTIMIZER_NO_BROWSER = "1";
@@ -33,6 +38,12 @@ let shutdownPromise = null;
 let quitPromise = null;
 let quitting = false;
 let cleanupComplete = false;
+let themeStore;
+let closeBlocked = false;
+
+function isCloseBlocked() {
+  return closeBlocked || serverRuntime?.busy === true;
+}
 
 function isTrustedRendererUrl(value) {
   try {
@@ -64,6 +75,28 @@ function isMainWindowSender(event) {
 }
 
 function registerWindowIpc() {
+  ipcMain.on(IPC.readMaximizeState, (event) => {
+    event.returnValue = isMainWindowSender(event) ? mainWindow.isMaximized() : undefined;
+  });
+  ipcMain.on(IPC.setCloseBlocked, (event, blocked) => {
+    event.returnValue = false;
+    if (!isMainWindowSender(event) || typeof blocked !== "boolean") return;
+    closeBlocked = blocked;
+    event.returnValue = true;
+  });
+  ipcMain.on(IPC.readTheme, (event) => {
+    event.returnValue = isMainWindowSender(event) ? themeStore?.get() ?? "day" : undefined;
+  });
+  ipcMain.handle(IPC.saveTheme, (event, theme) => {
+    if (!isMainWindowSender(event) || !themeStore || (theme !== "day" && theme !== "night")) return false;
+    try {
+      themeStore.set(theme);
+      mainWindow.setBackgroundColor(theme === "night" ? "#070a12" : "#fdfaf4");
+      return true;
+    } catch {
+      return false;
+    }
+  });
   ipcMain.on(IPC.minimize, (event) => {
     if (isMainWindowSender(event)) mainWindow.minimize();
   });
@@ -122,6 +155,7 @@ function sendStartupStage(index) {
 }
 
 async function createMainWindow() {
+  themeStore = createThemeStore(path.join(app.getPath("userData"), "arinox-ui-theme.json"));
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -130,7 +164,7 @@ async function createMainWindow() {
     show: true,
     titleBarStyle: "hidden",
     autoHideMenuBar: true,
-    backgroundColor: "#0a0a0a",
+    backgroundColor: themeStore.get() === "night" ? "#070a12" : "#fdfaf4",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,
@@ -139,7 +173,12 @@ async function createMainWindow() {
     },
   });
   mainWindow = window;
+  closeBlocked = false;
   configureWebContents(window);
+
+  window.on("close", (event) => {
+    if (isCloseBlocked()) event.preventDefault();
+  });
 
   const sendMaximizeState = () => {
     if (!window.isDestroyed()) {
@@ -262,6 +301,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", (event) => {
     if (cleanupComplete) return;
     event.preventDefault();
+    if (isCloseBlocked()) return;
     void quitCleanly();
   });
 

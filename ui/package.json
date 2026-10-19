@@ -1,6 +1,6 @@
 {
   "name": "win11-gaming-optimizer",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Windows 11 gaming optimization control panel",
   "author": {
     "name": "AkiraNyx"
@@ -10,24 +10,26 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "build": "npm run prepare:desktop && next build",
+    "prepare:desktop": "node scripts/prepare-desktop.mjs",
     "start": "node server.js",
-    "electron": "electron electron/main.cjs",
-    "package": "electron-builder --win portable --x64",
+    "electron": "npm run prepare:desktop && electron electron/main.cjs",
+    "package": "npm run prepare:desktop && electron-builder --win portable --x64",
     "lint": "eslint .",
     "test": "npm run test:dependencies && npm run test:presets && npm run test:server && npm run test:electron",
     "test:dependencies": "node --experimental-strip-types --test config-dependencies.test.ts",
     "test:presets": "node --experimental-strip-types --test presets.test.ts",
     "test:server": "node --test server.test.js",
-    "test:electron": "node --test electron/startup.test.cjs",
+    "test:electron": "npm run prepare:desktop && node --test electron/startup.test.cjs electron/theme-store.test.cjs",
     "test:ui": "node checks/arinox-ui.mjs"
   },
   "devDependencies": {
-    "@arinox/react": "file:vendor/arinox-react-0.1.0.tgz",
+    "@arinox/react": "file:vendor/arinox-react-0.1.1.tgz",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "animejs": "4.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron": "^43.2.0",
@@ -36,7 +38,6 @@
     "eslint-config-next": "^16.2.12",
     "geist": "^1.7.2",
     "lucide-react": "^1.28.0",
-    "motion": "^12.43.0",
     "next": "^16.2.12",
     "postcss": "^8.5.25",
     "radix-ui": "^1.6.7",

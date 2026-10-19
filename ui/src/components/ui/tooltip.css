@@ -1,0 +1,18 @@
+.optimizer-theme .optimizer-tooltip.optimizer-tooltip {
+  background: var(--ax-color-surface-raised);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--fx-radius-popover);
+  box-shadow: var(--ax-shadow-md);
+  animation: optimizer-tooltip-enter var(--ax-motion-duration-fast) var(--ax-motion-easing-enter);
+}
+.optimizer-theme .optimizer-tooltip[data-state="closed"] {
+  pointer-events: none;
+  animation: optimizer-tooltip-exit var(--ax-motion-duration-fast) var(--ax-motion-easing-exit) forwards;
+}
+.optimizer-theme .optimizer-tooltip-arrow { fill: var(--ax-color-surface-raised); }
+@keyframes optimizer-tooltip-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes optimizer-tooltip-exit { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .optimizer-theme .optimizer-tooltip.optimizer-tooltip { animation-duration: 1ms; }
+}

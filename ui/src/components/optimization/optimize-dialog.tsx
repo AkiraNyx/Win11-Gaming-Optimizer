@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { motion } from "motion/react";
+import { AnimatedFade, AnimatedProgress } from "@/components/ui/animated-region";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,6 +15,7 @@ import type { HardwareInfo } from "@/types/hardware";
 import { useSnapshotHistory } from "@/hooks/use-snapshot-history";
 import { apiFetch } from "@/lib/api";
 import { getMutationErrorMessage } from "@/lib/api-errors";
+import { useWindowCloseBlock } from "@/hooks/use-window-close-block";
 
 const MAX_CONSECUTIVE_POLL_FAILURES = 10;
 
@@ -64,6 +65,7 @@ export function OptimizeDialog({
   const operationIdRef = useRef<string | null>(null);
   const pollFailureCountRef = useRef(0);
   const { saveSnapshot } = useSnapshotHistory();
+  useWindowCloseBlock(open && (!!status?.running || restarting || finalizing));
 
   const stopPolling = useCallback(() => {
     if (intervalRef.current) {
@@ -154,6 +156,11 @@ export function OptimizeDialog({
     if (!nextOpen && (status?.running || startingRef.current || restarting || finalizing)) return;
     if (!nextOpen && !status?.running && !startingRef.current) {
       stopPolling();
+    }
+    onOpenChange(nextOpen);
+  };
+
+  const resetAfterClose = () => {
       setStatus(null);
       setError("");
       setRefreshWarning(false);
@@ -164,8 +171,6 @@ export function OptimizeDialog({
       followLogRef.current = true;
       pollFailureCountRef.current = 0;
       completionNotifiedRef.current = false;
-    }
-    onOpenChange(nextOpen);
   };
 
   const start = async (skipSnapshot = false) => {
@@ -267,6 +272,7 @@ export function OptimizeDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
+        onAfterClose={resetAfterClose}
         className="min-w-0 sm:max-w-lg"
         showCloseButton={!status?.running && !restarting && !finalizing}
         onCloseAutoFocus={(event) => { event.preventDefault(); onReturnFocus?.(); }}
@@ -307,7 +313,7 @@ export function OptimizeDialog({
                   aria-valuenow={status.progress}
                   aria-label="优化进度"
                 >
-                  <motion.div className={"h-full rounded-full " + (completedWithWarnings ? "bg-amber-500" : ok ? "bg-emerald-500" : status.phase === "error" ? "bg-destructive" : "bg-primary")} initial={{ width: 0 }} animate={{ width: status.progress + "%" }} />
+                  <AnimatedProgress className={"h-full rounded-full " + (completedWithWarnings ? "bg-amber-500" : ok ? "bg-emerald-500" : status.phase === "error" ? "bg-destructive" : "bg-primary")} value={status.progress} />
                 </div>
               </div>
               <div
@@ -332,14 +338,12 @@ export function OptimizeDialog({
               </div>
               {finalizing ? <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="size-4 animate-spin" />正在重新读取系统状态…</div> : null}
               {isDone ? (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
+                <AnimatedFade
                   className={"flex items-center gap-2 rounded-md border p-3 text-sm " + (completedWithWarnings ? "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300" : ok ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-destructive/20 bg-destructive/10 text-destructive")}
                   role={ok ? "status" : "alert"}
                 >
                   {completedWithWarnings ? <><AlertTriangle className="size-4" /> 优化完成，但有警告。请查看日志，部分调整可能需要重启电脑后生效。</> : ok ? <><CheckCircle className="size-4" /> 优化完成，建议重启电脑。</> : <><XCircle className="size-4" /> 执行出错，请查看日志。</>}
-                </motion.div>
+                </AnimatedFade>
               ) : null}
               {refreshWarning ? (
                 <div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300" role="status">

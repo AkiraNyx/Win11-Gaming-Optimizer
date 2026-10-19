@@ -1,10 +1,11 @@
 # Arinox React source provenance
 
-Local package: `arinox-react-0.1.0.tgz`
+Local package: `arinox-react-0.1.1.tgz`
 
 - Upstream: https://github.com/AkiraNyx/Arinox-React
-- Source commit: `d66db450d1709080afdef6e4a3c48309af819f1a`
-- Synchronized: 2026-10-18
+- Source commit: [`76d17323c9c5d457496139cb0c0f6c56df95ced9`](https://github.com/AkiraNyx/Arinox-React/commit/76d17323c9c5d457496139cb0c0f6c56df95ced9)
+- Historical source diff: [arinox-desktop.patch](arinox-desktop.patch) records the time-unit fix, shared Dialog focus repair, optional embedded mode and public motion tokens against the original 0.1.0 source. These changes are now included in upstream 0.1.1; do not reapply the patch to that version. The older duration-only patch and packaged LOCAL_PATCH.diff are retained for provenance.
+- Synchronized: 2026-10-19
 - Built with upstream `npm ci --ignore-scripts` and `npm run build:lib`, then `npm pack`.
 - Public entry: `@arinox/react`; stylesheet: `@arinox/react/styles.css`.
 - Arinox is GPL-3.0-only. The archive retains upstream LICENSE, LICENSES.md and original font license notices in lib/assets/fonts. The optimizer remains AGPL-3.0-only.

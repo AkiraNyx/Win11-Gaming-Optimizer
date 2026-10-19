@@ -44,6 +44,7 @@ export function OptimizationItemRow({
   const [pendingTarget, setPendingTarget] = useState<TargetValue | null>(null);
   const [pendingCommand, setPendingCommand] = useState(false);
   const [warning, setWarning] = useState<TransitionWarning | null>(null);
+  const [warningOpen, setWarningOpen] = useState(false);
   const warningTriggerRef = useRef<HTMLElement | null>(null);
   const dependencyHelpId = useId();
 
@@ -110,6 +111,7 @@ export function OptimizationItemRow({
     setPendingTarget(nextTarget);
     setPendingCommand(false);
     setWarning(nextWarning);
+    setWarningOpen(true);
   };
 
   const requestCommand = () => {
@@ -126,6 +128,7 @@ export function OptimizationItemRow({
     setPendingTarget(null);
     setPendingCommand(true);
     setWarning(nextWarning);
+    setWarningOpen(true);
   };
 
   const currentLabel = item.control === "command"
@@ -267,8 +270,9 @@ export function OptimizationItemRow({
 
       {warning ? (
         <ConfirmToggleDialog
-          open
-          onOpenChange={(open) => { if (!open) setWarning(null); }}
+          open={warningOpen}
+          onOpenChange={setWarningOpen}
+          onAfterClose={() => { setWarning(null); setPendingTarget(null); setPendingCommand(false); }}
           item={item}
           currentLabel={currentLabel}
           targetLabel={targetLabel}
@@ -277,7 +281,7 @@ export function OptimizationItemRow({
           onConfirm={() => {
             if (pendingCommand) onCommandChange(true);
             else if (pendingTarget !== null) onTargetChange(pendingTarget);
-            setWarning(null);
+            setWarningOpen(false);
           }}
         />
       ) : null}

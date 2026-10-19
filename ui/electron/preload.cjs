@@ -8,8 +8,36 @@ const IPC = Object.freeze({
   toggleMaximize: "win11optimizer:window-toggle-maximize",
   close: "win11optimizer:window-close",
   maximizeChanged: "win11optimizer:window-maximize-changed",
+  readMaximizeState: "win11optimizer:window-maximize-read",
+  setCloseBlocked: "win11optimizer:window-close-blocked",
   startupState: "win11optimizer:startup-state",
+  readTheme: "win11optimizer:theme-read",
+  saveTheme: "win11optimizer:theme-save",
 });
+
+let maximized = false;
+let closeBlocked = false;
+const maximizeListeners = new Set();
+ipcRenderer.on(IPC.maximizeChanged, (_event, value) => {
+  maximized = value === true;
+  for (const listener of maximizeListeners) listener(maximized);
+});
+try { maximized = ipcRenderer.sendSync(IPC.readMaximizeState) === true; }
+catch { /* Keep the default if the native state bridge is unavailable. */ }
+
+let currentTheme = "day";
+try { currentTheme = ipcRenderer.sendSync(IPC.readTheme) === "night" ? "night" : "day"; }
+catch { /* Keep the default if the native preference bridge is unavailable. */ }
+if (typeof document !== "undefined" && typeof window !== "undefined" && window.location.protocol === "file:") {
+  document.addEventListener("DOMContentLoaded", () => { document.documentElement.dataset.theme = currentTheme; }, { once: true });
+}
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", (event) => {
+    if (!closeBlocked) return;
+    event.preventDefault();
+    event.returnValue = false;
+  });
+}
 
 const STARTUP_HASH = "#startup";
 const STARTUP_HANDOFF_ID = "win11optimizer-startup-handoff";
@@ -35,17 +63,17 @@ function installStartupHandoff() {
     style.textContent = `
       #${STARTUP_HANDOFF_ID} {
         position: fixed;
-        inset: 60px 0 0;
+        inset: 84px 0 0;
         z-index: 2147483647;
         display: grid;
         place-items: center;
         padding: 48px 24px;
-        background: oklch(0.145 0 0);
-        color: oklch(0.985 0 0);
-        font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
+        background: var(--ax-color-bg-default, ${currentTheme === "night" ? "#070a12" : "#fdfaf4"});
+        color: var(--ax-color-text-default, ${currentTheme === "night" ? "#e6eaf0" : "#17191c"});
+        font-family: var(--ax-font-family-sans), "Segoe UI", sans-serif;
         letter-spacing: 0;
         opacity: 1;
-        transition: opacity 180ms ease-out;
+        transition: opacity var(--ax-motion-duration-base, 200ms) var(--ax-motion-easing-exit, ease-out);
       }
       #${STARTUP_HANDOFF_ID}.is-leaving { opacity: 0; }
       #${STARTUP_HANDOFF_ID} .handoff-content {
@@ -57,7 +85,7 @@ function installStartupHandoff() {
         width: 32px;
         height: 32px;
         margin: 0 auto 20px;
-        border: 2px solid oklch(0.708 0 0);
+        border: 2px solid var(--ax-color-accent-text);
         border-radius: 50%;
       }
       #${STARTUP_HANDOFF_ID} .handoff-clock::before,
@@ -68,7 +96,7 @@ function installStartupHandoff() {
         width: 2px;
         height: 8px;
         border-radius: 1px;
-        background: oklch(0.708 0 0);
+        background: var(--ax-color-accent-text);
         content: "";
         transform-origin: 1px 8px;
       }
@@ -78,14 +106,12 @@ function installStartupHandoff() {
       }
       #${STARTUP_HANDOFF_ID} h1 {
         margin: 0;
-        font-size: 20px;
-        font-weight: 600;
-        line-height: 28px;
+        font: 500 28px/1.5 var(--ax-font-family-display);
       }
       #${STARTUP_HANDOFF_ID} .handoff-status {
         min-height: 20px;
         margin: 8px 0 0;
-        color: oklch(0.708 0 0);
+        color: var(--ax-color-text-muted);
         font-size: 14px;
         line-height: 20px;
       }
@@ -100,7 +126,7 @@ function installStartupHandoff() {
       #${STARTUP_HANDOFF_ID} .handoff-segment {
         height: 4px;
         border-radius: 2px;
-        background: oklch(0.985 0 0);
+        background: var(--ax-color-accent-default);
       }
       #${STARTUP_HANDOFF_ID} .handoff-segment:last-child {
         animation: startup-handoff-pulse 1.2s ease-in-out infinite;
@@ -115,7 +141,8 @@ function installStartupHandoff() {
       }
     `;
 
-    const overlay = createElement("div");
+    const overlay = createElement("div", "ax-theme");
+    overlay.dataset.theme = currentTheme;
     overlay.id = STARTUP_HANDOFF_ID;
     overlay.setAttribute("role", "status");
     overlay.setAttribute("aria-live", "polite");
@@ -147,12 +174,10 @@ function installStartupHandoff() {
     let leaving = false;
     let removed = false;
     let timeoutId;
-    let removalTimeoutId;
     const observer = new MutationObserver(() => finishWhenReady());
     const detach = () => {
       if (removed) return;
       removed = true;
-      clearTimeout(removalTimeoutId);
       overlay.remove();
       style.remove();
     };
@@ -166,9 +191,12 @@ function installStartupHandoff() {
         window.requestAnimationFrame(detach);
         return;
       }
-      overlay.addEventListener("transitionend", detach, { once: true });
-      window.requestAnimationFrame(() => overlay.classList.add("is-leaving"));
-      removalTimeoutId = setTimeout(detach, 250);
+      window.requestAnimationFrame(() => {
+        overlay.classList.add("is-leaving");
+        const transitions = overlay.getAnimations();
+        if (!transitions.length) detach();
+        else void Promise.allSettled(transitions.map(animation => animation.finished)).then(detach);
+      });
     };
     const finishWhenReady = () => {
       const applicationMain = document.querySelector('main[aria-busy="false"]');
@@ -188,14 +216,27 @@ function installStartupHandoff() {
 }
 
 contextBridge.exposeInMainWorld("win11Optimizer", Object.freeze({
+  getTheme: () => currentTheme,
+  setTheme: async (theme) => {
+    if (theme !== "day" && theme !== "night") return false;
+    const saved = await ipcRenderer.invoke(IPC.saveTheme, theme);
+    if (saved === true) currentTheme = theme;
+    return saved === true;
+  },
   minimize: () => ipcRenderer.send(IPC.minimize),
   toggleMaximize: () => ipcRenderer.send(IPC.toggleMaximize),
   close: () => ipcRenderer.send(IPC.close),
+  setCloseBlocked: (blocked) => {
+    if (typeof blocked !== "boolean") return false;
+    const accepted = ipcRenderer.sendSync(IPC.setCloseBlocked, blocked) === true;
+    if (accepted) closeBlocked = blocked;
+    return accepted;
+  },
   onMaximizeChange: (listener) => {
     if (typeof listener !== "function") return () => {};
-    const handleChange = (_event, maximized) => listener(maximized === true);
-    ipcRenderer.on(IPC.maximizeChanged, handleChange);
-    return () => ipcRenderer.removeListener(IPC.maximizeChanged, handleChange);
+    maximizeListeners.add(listener);
+    listener(maximized);
+    return () => maximizeListeners.delete(listener);
   },
   onStartupState: (listener) => {
     if (typeof listener !== "function") return () => {};

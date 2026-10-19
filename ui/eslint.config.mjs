@@ -17,5 +17,5 @@ export default defineConfig([
       "no-shadow": "error",
     },
   },
-  globalIgnores([".next/**", "out/**", "build/**", ".npm-cache/**", "next-env.d.ts"]),
+  globalIgnores([".next/**", "out/**", "build/**", "electron/arinox/**", ".npm-cache/**", "next-env.d.ts"]),
 ]);
