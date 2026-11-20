@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Loader2, Play, RefreshCw, X } from "lucide-react";
@@ -10,6 +10,8 @@ import { Footer } from "@/components/layout/footer";
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
 import { CategoryPanel } from "@/components/optimization/category-panel";
+import { CleanupDialog } from "@/components/cleanup/cleanup-dialog";
+import { CleanupPanel } from "@/components/cleanup/cleanup-panel";
 import { ChangeSummary } from "@/components/optimization/change-summary";
 import { ExportDialog } from "@/components/optimization/export-dialog";
 import { ImportDialog } from "@/components/optimization/import-dialog";
@@ -18,6 +20,7 @@ import { PresetSelector } from "@/components/optimization/preset-selector";
 import { RestoreDialog } from "@/components/optimization/restore-dialog";
 import { RuntimeLogDialog } from "@/components/optimization/runtime-log-dialog";
 import { UninstallDialog } from "@/components/optimization/uninstall-dialog";
+import { useCleanupScan } from "@/hooks/use-cleanup-scan";
 import { useHardwareDetect } from "@/hooks/use-hardware-detect";
 import { useOptimizationConfig } from "@/hooks/use-optimization-config";
 import { useSystemStatus } from "@/hooks/use-system-status";
@@ -59,6 +62,16 @@ export default function Home() {
   } = useOptimizationConfig(systemStatus);
   const hardware = useHardwareDetect();
   const [activeCategory, setActiveCategory] = useState(categories[0].id);
+  const [cleanupSelected, setCleanupSelected] = useState<Set<string>>(() => new Set());
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  // Cleanup lives inside the storage category, so the inventory is only scanned
+  // when that page is opened.
+  const {
+    scan: cleanupScan,
+    loading: cleanupLoading,
+    error: cleanupError,
+    refresh: cleanupRefresh,
+  } = useCleanupScan(activeCategory === "storageOptimization");
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [optimizeOpen, setOptimizeOpen] = useState(false);
@@ -174,6 +187,55 @@ export default function Home() {
   const categoryChangeCounts = useMemo(() => countCategoryChanges(config, systemStatus), [config, systemStatus]);
   const currentCategory = categories.find((c) => c.id === activeCategory);
 
+  const cleanupInitializedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const scan = cleanupScan;
+    if (!scan) return;
+    const isFirstScan = cleanupInitializedRef.current === null;
+    cleanupInitializedRef.current = scan.scannedAt;
+    const valid = new Set(
+      scan.targets.filter((target) => target.available && target.kind !== "report").map((target) => target.id),
+    );
+    setCleanupSelected((previous) => {
+      if (isFirstScan) {
+        const next = new Set<string>();
+        for (const target of scan.targets) {
+          if (target.defaultSelected && valid.has(target.id) && target.bytes > 0) next.add(target.id);
+        }
+        return next;
+      }
+      return new Set([...previous].filter((id) => valid.has(id)));
+    });
+  }, [cleanupScan]);
+
+  const cleanupSelection = useMemo(() => {
+    const targets = (cleanupScan?.targets ?? []).filter((target) => cleanupSelected.has(target.id));
+    return { targets, bytes: targets.reduce((sum, target) => sum + target.bytes, 0) };
+  }, [cleanupScan, cleanupSelected]);
+
+  const toggleCleanupTarget = useCallback((id: string, checked: boolean) => {
+    setCleanupSelected((previous) => {
+      const next = new Set(previous);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const selectSafeCleanupTargets = useCallback(() => {
+    if (!cleanupScan) return;
+    setCleanupSelected(new Set(
+      cleanupScan.targets
+        .filter((target) => target.risk === "safe" && target.available && target.kind !== "report" && target.bytes > 0)
+        .map((target) => target.id),
+    ));
+  }, [cleanupScan]);
+
+  const handleCleanupComplete = useCallback(async () => {
+    const fresh = await cleanupRefresh();
+    return fresh !== null;
+  }, [cleanupRefresh]);
+
   const refreshForAction = async (source: "current" | string) => {
     if (statusRequestInFlightRef.current || statusLoading) return null;
     pendingFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : currentPresetRef.current;
@@ -287,14 +349,14 @@ export default function Home() {
         </div>
         <AnimatedCollapse open={interactionBusy}>
         {interactionBusy ? (
-          <div className="flex items-center gap-2 border-b border-primary/20 bg-primary/5 px-4 py-2 text-xs text-foreground lg:px-6" role="status" aria-live="polite">
+          <div className="flex items-center gap-2 border-b border-primary/20 bg-primary/5 px-4 py-1.5 text-xs text-foreground lg:px-6" role="status" aria-live="polite">
             <Loader2 className="size-3.5 animate-spin" />正在读取系统状态，请稍候…
           </div>
         ) : null}
         </AnimatedCollapse>
         <AnimatedCollapse open={!!configError}>
         {configError ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-destructive lg:px-6" role={configurationLocked ? "alert" : "status"}>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-destructive/20 bg-destructive/5 px-4 py-1.5 text-xs text-destructive lg:px-6" role={configurationLocked ? "alert" : "status"}>
             <span>{configError}</span>
             {configurationLocked ? (
               <span className="flex items-center gap-2">
@@ -310,7 +372,7 @@ export default function Home() {
         </AnimatedCollapse>
         <AnimatedCollapse open={!!categorySyncError}>
         {categorySyncError ? (
-          <div className="flex items-center justify-between gap-2 border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-destructive lg:px-6" role="alert">
+          <div className="flex items-center justify-between gap-2 border-b border-destructive/20 bg-destructive/5 px-4 py-1.5 text-xs text-destructive lg:px-6" role="alert">
             <span>{categorySyncError.message}</span>
             <Button
               type="button"
@@ -326,14 +388,14 @@ export default function Home() {
         </AnimatedCollapse>
         <AnimatedCollapse open={!!statusError}>
         {statusError ? (
-          <div className="border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-destructive lg:px-6" role="alert">
+          <div className="border-b border-destructive/20 bg-destructive/5 px-4 py-1.5 text-xs text-destructive lg:px-6" role="alert">
             系统状态读取失败，请选择“当前”重试。
           </div>
         ) : null}
         </AnimatedCollapse>
         <AnimatedCollapse open={!!(runtimeError || (runtimeCapabilities && !runtimeCapabilities.mutationsEnabled))}>
         {(runtimeError || (runtimeCapabilities && !runtimeCapabilities.mutationsEnabled)) ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-300 lg:px-6" role={runtimeError ? "alert" : "status"}>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700 dark:text-amber-300 lg:px-6" role={runtimeError ? "alert" : "status"}>
             <span>{mutationDisabledMessage}</span>
             {runtimeError ? (
               <Button
@@ -352,7 +414,7 @@ export default function Home() {
         </AnimatedCollapse>
         <AnimatedCollapse open={(!statusLoading || !!statusError) && changes.unavailable > 0}>
         {(!statusLoading || !!statusError) && changes.unavailable > 0 ? (
-          <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-300 lg:px-6" role="status">
+          <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700 dark:text-amber-300 lg:px-6" role="status">
             <AlertTriangle className="size-3.5 shrink-0" />
             <span>部分项目状态未知，已保留原目标并暂停执行（{changes.unavailable} 项）。重新读取成功前，此提示会持续显示。</span>
           </div>
@@ -383,6 +445,32 @@ export default function Home() {
                     syncing={statusLoading && statusRequestSource === currentCategory.id}
                   />
                 )}
+                {activeCategory === "storageOptimization" ? (
+                  <CleanupPanel
+                    scan={cleanupScan}
+                    loading={cleanupLoading}
+                    error={cleanupError}
+                    selected={cleanupSelected}
+                    onToggle={toggleCleanupTarget}
+                    onSelectSafe={selectSafeCleanupTargets}
+                    onSelectNone={() => setCleanupSelected(new Set())}
+                    onRefresh={() => { void cleanupRefresh(); }}
+                    onApply={() => setCleanupOpen(true)}
+                    applyCount={cleanupSelection.targets.length}
+                    applyBytes={cleanupSelection.bytes}
+                    applyDisabled={mutationsDisabled || interactionBusy || cleanupLoading || cleanupSelection.targets.length === 0}
+                    applyDisabledReason={
+                      mutationsDisabled
+                        ? "当前服务无法执行系统修改"
+                        : cleanupLoading
+                          ? "正在扫描，请稍候"
+                          : cleanupSelection.targets.length === 0
+                            ? "请先选择要清理的位置"
+                            : undefined
+                    }
+                    disabled={interactionBusy}
+                  />
+                ) : null}
               </div>
               </AnimatedSwitch>
           </main>
@@ -394,6 +482,18 @@ export default function Home() {
         <RestoreDialog open={restoreOpen} onOpenChange={setRestoreOpen} availability={restoreAvailability} onRefreshAvailability={refreshRestoreAvailability} onComplete={handleStatusRefreshComplete} onReturnFocus={() => returnFocus(restoreTriggerRef)} />
         <RuntimeLogDialog open={runtimeLogOpen} onOpenChange={setRuntimeLogOpen} onReturnFocus={() => returnFocus(runtimeLogTriggerRef)} />
         <UninstallDialog open={uninstallOpen} onOpenChange={setUninstallOpen} availability={restoreAvailability} disabledReason={restoreDisabledReason} onRefreshAvailability={refreshRestoreAvailability} onComplete={handleStatusRefreshComplete} onReturnFocus={() => returnFocus(uninstallTriggerRef)} />
+        <CleanupDialog
+          open={cleanupOpen}
+          onOpenChange={setCleanupOpen}
+          targets={cleanupSelection.targets}
+          olderThanDays={1}
+          planId={cleanupScan?.planId ?? ""}
+          onComplete={handleCleanupComplete}
+          onReturnFocus={() => {
+            const trigger = document.querySelector<HTMLElement>("[data-cleanup-apply]");
+            if (trigger) trigger.focus();
+          }}
+        />
         <Dialog open={presetOpen} onOpenChange={setPresetOpen}>
           <DialogContent
             className="sm:max-w-md"

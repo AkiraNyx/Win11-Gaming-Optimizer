@@ -41,6 +41,10 @@ const MAX_LOG_LINES = 500;
 const MAX_PROCESS_OUTPUT_BYTES = 5 * 1024 * 1024;
 const DEFAULT_POWERSHELL_TIMEOUT_MS = 10 * 60 * 1000;
 const OPTIMIZE_TIMEOUT_MS = 30 * 60 * 1000;
+const CLEANUP_TIMEOUT_MS = 20 * 60 * 1000;
+const CLEANUP_TARGET_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
+const MAX_CLEANUP_TARGETS = 64;
+const MAX_CLEANUP_DAYS = 3650;
 const PROCESS_TREE_KILL_TIMEOUT_MS = 5_000;
 const SNAPSHOT_PRESETS = new Set(["current", "conservative", "balanced", "extreme", "custom"]);
 const CHANGES_FILE_PATTERN = /^changes_\d{8}_\d{6}(?:_[0-9a-f]{8})?\.json$/i;
@@ -803,8 +807,62 @@ function runPS(script, args = [], timeoutMs) {
   return runPowerShell(buildScriptCommand(script, args), timeoutMs);
 }
 
-function normalizeOperationId(value) {
-  if (value === undefined) return crypto.randomUUID();
+// Cleanup targets are declared in scripts/cleanup/CleanupCatalog.psm1. The
+// client can only reference those ids, so no caller supplied path can reach a
+// delete operation.
+function normalizeCleanupTargets(value) {
+  if (!Array.isArray(value) || value.length === 0) throw new HttpError(400, "At least one cleanup target is required");
+  if (value.length > MAX_CLEANUP_TARGETS) throw new HttpError(400, "Too many cleanup targets");
+  const unique = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !CLEANUP_TARGET_ID_PATTERN.test(item)) throw new HttpError(400, "Invalid cleanup target id");
+    if (!unique.includes(item)) unique.push(item);
+  }
+  return unique;
+}
+
+function normalizeCleanupDays(value) {
+  if (value === undefined || value === null) return 1;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > MAX_CLEANUP_DAYS) {
+    throw new HttpError(400, "Invalid cleanup age threshold");
+  }
+  return value;
+}
+
+/**
+ * Apply is bound to the previewed plan: the engine deletes that file list and
+ * refuses to re-scan, so an id is mandatory and must look like the uuid produced
+ * by scan.
+ */
+function normalizeCleanupPlanId(value) {
+  if (typeof value !== "string" || !/^[0-9a-f]{32}$/.test(value)) {
+    throw new HttpError(400, "A valid cleanup preview id is required");
+  }
+  return value;
+}
+
+function parseCleanupResult(result, label) {
+  const stdout = String(result.stdout || "").replace(/^\uFEFF/, "");
+  if (result.code !== 0) {
+    // buildScriptCommand funnels script errors into stdout with an [ERR] prefix,
+    // so stderr alone would report nothing useful.
+    const errorLine = stdout.split(/\r?\n/).find((line) => line.startsWith("[ERR] "));
+    const detail = (errorLine ? errorLine.slice(6) : String(result.stderr || "").trim().split(/\r?\n/)[0] || `exit code ${result.code}`).trim();
+    throw new HttpError(502, `${label} failed: ${detail}`);
+  }
+  const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (!lines[index].startsWith("{")) continue;
+    try {
+      return JSON.parse(lines[index]);
+    } catch {
+      // keep scanning: a warning line may precede the document
+    }
+  }
+  throw new HttpError(502, `${label} returned an unreadable result`);
+}
+
+function normalizeOperationId(value) {  if (value === undefined) return crypto.randomUUID();
   if (typeof value !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
     throw new HttpError(400, "Invalid operation id");
   }
@@ -1015,6 +1073,93 @@ async function handleAPI(req, res, url) {
     } catch (error) {
       json(res, 503, { error: "System status detection failed", detail: error.message });
     }
+    return;
+  }
+
+  if (url.pathname === "/api/cleanup/scan" && req.method === "GET") {
+    await awaitRuntimeReady();
+    const cleanupScript = path.join(SCRIPTS_DIR, "cleanup", "cleanup.ps1");
+    const result = await runSingleFlight("cleanup-scan", () =>
+      runPowerShell(buildScriptCommand(cleanupScript, ["-Mode", "Scan", "-LogDir", CONFIG_DIR]), CLEANUP_TIMEOUT_MS));
+    json(res, 200, parseCleanupResult(result, "Cleanup scan"));
+    return;
+  }
+
+  if (url.pathname === "/api/cleanup/apply" && req.method === "POST") {
+    const body = await parseBody(req);
+    const cleanupTargets = normalizeCleanupTargets(body.targets);
+    const cleanupDays = normalizeCleanupDays(body.olderThanDays);
+    const cleanupPlanId = normalizeCleanupPlanId(body.planId);
+    assertMutationRuntime();
+    normalizeOperationId(body.operationId);
+    const operation = beginOperation("cleanup", "Starting cleanup...", body.operationId);
+    if (!operation) throw new HttpError(409, `Another operation is running: ${activeOperation.name}`);
+
+    const cleanupScript = path.join(SCRIPTS_DIR, "cleanup", "cleanup.ps1");
+    const args = [
+      "-Mode", "Apply",
+      "-TargetIds", cleanupTargets.join(","),
+      "-OlderThanDays", String(cleanupDays),
+      "-PlanId", cleanupPlanId,
+      "-LogDir", CONFIG_DIR,
+    ];
+    try {
+      const processPromise = runPowerShell(buildScriptCommand(cleanupScript, args), CLEANUP_TIMEOUT_MS, {
+        onStdout: (text) => {
+          for (const line of text.split(/\r?\n/).filter(Boolean)) {
+            // The engine prints one JSON document on stdout; it is parsed from
+            // the completed output, never from the log stream.
+            if (line.replace(/^\uFEFF/, "").trimStart().startsWith("{")) continue;
+            appendLog(line);
+            execState.progress = Math.min(execState.progress + 2, 90);
+          }
+        },
+        onStderr: (text) => {
+          for (const line of text.split(/\r?\n/).filter(Boolean)) {
+            if (/^\s+(\+|~~)|CategoryInfo|FullyQualifiedErrorId|^\s*\+/.test(line)) continue;
+            appendLog(`[ERR] ${line}`);
+          }
+        },
+      });
+      void processPromise.then(
+        (result) => {
+          let cleanupResult = null;
+          if (result.code === 0) {
+            try {
+              cleanupResult = parseCleanupResult(result, "Cleanup");
+            } catch (error) {
+              appendLog(`[ERR] ${error.message}`);
+            }
+          }
+          // Deletion happens file by file. A non-zero exit or an unreadable
+          // result therefore does not mean "nothing was deleted", so the
+          // outcome is reported as interrupted rather than failed.
+          const outcome = cleanupResult
+            ? { cleanup: cleanupResult }
+            : { interrupted: true };
+          finishOperation(
+            operation,
+            result.code,
+            result.code === 0 ? "Cleanup completed" : "Cleanup ended before reporting a result",
+            outcome,
+          );
+        },
+        (error) => {
+          appendLog(`[ERR] ${error.message}`);
+          finishOperation(
+            operation,
+            1,
+            /timed out/i.test(error.message) ? "Cleanup timed out" : "Cleanup ended before reporting a result",
+            { interrupted: true },
+          );
+        },
+      );
+    } catch (error) {
+      finishOperation(operation, 1, "Unable to start cleanup");
+      throw error;
+    }
+
+    json(res, 202, { message: "Started", operationId: operation.id });
     return;
   }
 
