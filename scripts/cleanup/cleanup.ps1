@@ -1,13 +1,13 @@
 ﻿#Requires -Version 5.1
 <#
-Cleanup engine.
+Cleanup entry point.
 
-  -Mode Scan   measure declared cleanup targets, print one JSON object
-  -Mode Apply  delete the selected targets, print one JSON object
+  -Mode Scan   measure declared targets, write a preview plan, print one JSON object
+  -Mode Apply  delete exactly the plan written by scan, print one JSON object
 
-Only target ids declared in CleanupCatalog.psm1 are accepted. No caller supplied
-path ever reaches the filesystem. Directory entries that are reparse points are
-never followed or removed. Directory roots are preserved: only their contents go.
+Scan is read-only. Apply never re-scans: it deletes the file list that the user
+confirmed, and reports "stale" when that list is missing or expired, so the
+preview and the deletion always describe the same set of files.
 #>
 [CmdletBinding()]
 param(
@@ -15,14 +15,16 @@ param(
     [string]$TargetIds = "",
     [int]$OlderThanDays = 1,
     [string]$LogDir,
+    [string]$PlanDir,
+    [string]$PlanId = "",
     [switch]$IncludeReportDetails
 )
 
 $ErrorActionPreference = "Continue"
 $ProgressPreference = "SilentlyContinue"
 
-$catalogPath = Join-Path $PSScriptRoot "CleanupCatalog.psm1"
-Import-Module $catalogPath -Force
+Import-Module (Join-Path $PSScriptRoot "CleanupCatalog.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "CleanupEngine.psm1") -Force
 
 $script:LogLines = [System.Collections.Generic.List[string]]::new()
 function Write-CleanupLog {
@@ -39,92 +41,6 @@ function Test-IsAdministrator {
     } catch {
         return $false
     }
-}
-
-function Expand-CleanupPath {
-    param([Parameter(Mandatory = $true)][string]$Pattern)
-
-    if (-not [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($Pattern)) {
-        if (Test-Path -LiteralPath $Pattern -PathType Container) { return @((Get-Item -LiteralPath $Pattern).FullName) }
-        return @()
-    }
-
-    $results = @()
-    try {
-        $results = @(Get-Item -Path $Pattern -ErrorAction SilentlyContinue |
-                     Where-Object { $_.PSIsContainer } |
-                     ForEach-Object { $_.FullName })
-    } catch {
-        Write-CleanupLog "Path expansion failed: $Pattern ($($_.Exception.Message))" "WARN"
-    }
-    return $results
-}
-
-function Get-CleanupCandidates {
-    param(
-        [Parameter(Mandatory = $true)]$Target,
-        [Parameter(Mandatory = $true)][int]$Days
-    )
-
-    $candidates = [System.Collections.Generic.List[object]]::new()
-    $paths = [System.Collections.Generic.List[string]]::new()
-    # Windows paths are case-insensitive: AMD\DxCache and AMD\DxcCache are the
-    # same directory, so de-duplicate on a normalized key or the same bytes get
-    # counted (and later deleted) twice.
-    $seenPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    $reparseSkipped = 0
-
-    foreach ($root in $Target.Paths) {
-        foreach ($dir in (Expand-CleanupPath -Pattern $root)) {
-            if ($seenPaths.Add($dir)) { $paths.Add($dir) }
-            $entries = @()
-            try {
-                if ($Target.Kind -eq "files") {
-                    $entries = @(Get-ChildItem -LiteralPath $dir -Filter $Target.Pattern -File -Force -ErrorAction Stop)
-                } else {
-                    $entries = @(Get-ChildItem -LiteralPath $dir -Force -ErrorAction Stop)
-                }
-            } catch {
-                Write-CleanupLog "Unreadable directory: $dir ($($_.Exception.Message))" "WARN"
-                continue
-            }
-            foreach ($entry in $entries) {
-                if (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-                    $reparseSkipped++
-                    continue
-                }
-                $candidates.Add($entry)
-            }
-        }
-    }
-
-    $selected = $candidates
-    if ($Days -ge 0) {
-        $cutoff = (Get-Date).AddDays(-$Days)
-        $selected = @($candidates | Where-Object { $_.LastWriteTime -lt $cutoff })
-    }
-
-    [pscustomobject]@{
-        Candidates     = @($selected)
-        Paths          = @($paths)
-        ReparseSkipped = $reparseSkipped
-    }
-}
-
-function Measure-EntryBytes {
-    param([Parameter(Mandatory = $true)]$Entry)
-
-    if ($Entry.PSIsContainer) {
-        try {
-            $sum = (Get-ChildItem -LiteralPath $Entry.FullName -Recurse -Force -File -ErrorAction SilentlyContinue |
-                    Measure-Object -Property Length -Sum).Sum
-            if ($null -eq $sum) { return 0 }
-            return [int64]$sum
-        } catch {
-            return [int64]0
-        }
-    }
-    return [int64]$Entry.Length
 }
 
 function Get-ReportDetails {
@@ -153,14 +69,63 @@ function Get-ReportDetails {
     }
 }
 
-function Invoke-CleanupScan {
-    param([Parameter(Mandatory = $true)][object[]]$Scope, [Parameter(Mandatory = $true)][int]$Days, [bool]$IsAdmin)
+function Get-RecycleBinPaths {    $paths = [System.Collections.Generic.List[string]]::new()
+    foreach ($volume in @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" -ErrorAction SilentlyContinue)) {
+        $binPath = Join-Path $volume.DeviceID '$Recycle.Bin'
+        if (Test-Path -LiteralPath $binPath) { $paths.Add($binPath) }
+    }
+    return @($paths.ToArray())
+}
 
+function Measure-RecycleBin {
+    $bytes = [int64]0
+    $files = [int64]0
+    foreach ($binPath in (Get-RecycleBinPaths)) {
+        try {
+            foreach ($sid in @(Get-ChildItem -LiteralPath $binPath -Directory -Force -ErrorAction Stop)) {
+                $sum = (Get-ChildItem -LiteralPath $sid.FullName -Recurse -Force -File -ErrorAction SilentlyContinue |
+                        Measure-Object -Property Length -Sum)
+                $bytes += [int64]($sum.Sum)
+                $files += [int64]($sum.Count)
+            }
+        } catch {
+            Write-CleanupLog "Recycle bin unreadable on $binPath ($($_.Exception.Message))" "WARN"
+        }
+    }
+    [pscustomobject]@{ Bytes = $bytes; Files = $files }
+}
+
+$isAdmin = Test-IsAdministrator
+$Targets = @()
+if ($TargetIds) {
+    $Targets = @($TargetIds -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
+if (-not $PlanDir) {
+    $base = if ($LogDir) { $LogDir } else { $env:TEMP }
+    $PlanDir = Join-Path $base "cleanup-plans"
+}
+
+Write-CleanupLog "Cleanup engine started: mode=$Mode admin=$isAdmin olderThanDays=$OlderThanDays planDir=$PlanDir"
+
+# ---------------------------------------------------------------------------
+# Scan
+# ---------------------------------------------------------------------------
+function Invoke-CleanupScan {
+    param([object[]]$Scope, [int]$Days, [bool]$IsAdmin, [string]$PlansDirectory)
+
+    # Plans are preview artifacts; keep a day of them and drop the rest so the
+    # directory cannot grow without bound across sessions.
+    if (Test-Path -LiteralPath $PlansDirectory) {
+        Get-ChildItem -LiteralPath $PlansDirectory -Directory -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-24) } |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    $planId = [guid]::NewGuid().ToString("N")
     $results = [System.Collections.Generic.List[object]]::new()
     $totalBytes = [int64]0
     $totalFiles = [int64]0
-    # Read-only inventory is reported separately: it is never part of the
-    # reclaimable total, or the UI would promise space it cannot free.
     $inventoryBytes = [int64]0
 
     foreach ($target in $Scope) {
@@ -168,57 +133,46 @@ function Invoke-CleanupScan {
         $skippedReason = ""
         $bytes = [int64]0
         $files = [int64]0
-        $paths = @()
+        $roots = @()
         $details = @()
+        $warnings = @()
 
-        if ($target.RequiresAdmin -and -not $IsAdmin) {
-            $available = $false
-            $skippedReason = "需要管理员权限才能读取"
-        } elseif ($target.Kind -eq "recyclebin") {
-            $paths = @()
-            foreach ($volume in @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" -ErrorAction SilentlyContinue)) {
-                $binPath = Join-Path $volume.DeviceID '$Recycle.Bin'
-                if (Test-Path -LiteralPath $binPath) { $paths += $binPath }
-            }
-            foreach ($p in $paths) {
-                try {
-                    foreach ($sid in @(Get-ChildItem -LiteralPath $p -Directory -Force -ErrorAction Stop)) {
-                        $sum = (Get-ChildItem -LiteralPath $sid.FullName -Recurse -Force -File -ErrorAction SilentlyContinue |
-                                Measure-Object -Property Length -Sum)
-                        $bytes += [int64]($sum.Sum)
-                        $files += [int64]($sum.Count)
-                    }
-                } catch {
-                    Write-CleanupLog "Recycle bin unreadable on $p ($($_.Exception.Message))" "WARN"
-                }
-            }
-        } else {
-            $scan = Get-CleanupCandidates -Target $target -Days $Days
-            $paths = $scan.Paths
-            if ($scan.Paths.Count -eq 0) {
-                $available = $false
-                $skippedReason = "目录不存在"
-            }
-            if ($scan.ReparseSkipped -gt 0) {
-                Write-CleanupLog "$($target.Id): skipped $($scan.ReparseSkipped) reparse point entries" "INFO"
-            }
-            foreach ($entry in $scan.Candidates) {
-                $bytes += (Measure-EntryBytes -Entry $entry)
-                if ($entry.PSIsContainer) {
-                    $count = (Get-ChildItem -LiteralPath $entry.FullName -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object).Count
-                    $files += [int64]$count
-                } else {
-                    $files += 1
-                }
-            }
+        if ($target.Kind -eq "report") {
+            $inventory = Get-CleanupTargetInventory -Target $target -OlderThanDays $Days -IsAdmin $IsAdmin
+            $bytes = $inventory.Bytes
+            $roots = $inventory.Roots
+            $warnings = $inventory.Warnings
+            if (-not $inventory.Available) { $available = $false; $skippedReason = $inventory.SkippedReason }
             if ($IncludeReportDetails -or $target.Kind -eq "report") {
                 $details = @(Get-ReportDetails -Target $target)
             }
-        }
-
-        if ($target.Kind -eq "report") {
             $inventoryBytes += $bytes
+        } elseif ($target.Kind -eq "recyclebin") {
+            if ($target.RequiresAdmin -and -not $IsAdmin) {
+                $available = $false
+                $skippedReason = "需要管理员权限"
+            } else {
+                $measured = Measure-RecycleBin
+                $bytes = $measured.Bytes
+                $files = $measured.Files
+                $roots = @(Get-RecycleBinPaths)
+                $null = Save-CleanupPlan -Directory $PlansDirectory -PlanId $planId -TargetId $target.Id `
+                    -Roots $roots -Files @() -OlderThanDays $Days
+            }
+            $totalBytes += $bytes
+            $totalFiles += $files
         } else {
+            $inventory = Get-CleanupTargetInventory -Target $target -OlderThanDays $Days -IsAdmin $IsAdmin
+            $bytes = $inventory.Bytes
+            $files = $inventory.Files.Count
+            $roots = $inventory.Roots
+            $warnings = $inventory.Warnings
+            if (-not $inventory.Available) { $available = $false; $skippedReason = $inventory.SkippedReason }
+
+            if ($available) {
+                $null = Save-CleanupPlan -Directory $PlansDirectory -PlanId $planId -TargetId $target.Id `
+                    -Roots $roots -Files $inventory.Files -OlderThanDays $Days
+            }
             $totalBytes += $bytes
             $totalFiles += $files
         }
@@ -236,8 +190,9 @@ function Invoke-CleanupScan {
             skippedReason   = $skippedReason
             bytes           = $bytes
             files           = $files
-            paths           = @($paths)
+            paths           = @($roots)
             entries         = @($details)
+            warnings        = @($warnings)
             note            = $target.Note
         }) | Out-Null
 
@@ -245,19 +200,23 @@ function Invoke-CleanupScan {
     }
 
     [pscustomobject]@{
-        mode          = "scan"
-        scannedAt     = (Get-Date).ToString("o")
-        isAdmin       = $IsAdmin
-        olderThanDays = $Days
-        totalBytes    = $totalBytes
-        totalFiles    = $totalFiles
+        mode           = "scan"
+        scannedAt      = (Get-Date).ToString("o")
+        isAdmin        = $IsAdmin
+        olderThanDays  = $Days
+        planId         = $planId
+        totalBytes     = $totalBytes
+        totalFiles     = $totalFiles
         inventoryBytes = $inventoryBytes
-        targets       = @($results.ToArray())
+        targets        = @($results.ToArray())
     }
 }
 
+# ---------------------------------------------------------------------------
+# Apply
+# ---------------------------------------------------------------------------
 function Invoke-CleanupApply {
-    param([Parameter(Mandatory = $true)][object[]]$Scope, [Parameter(Mandatory = $true)][int]$Days, [bool]$IsAdmin)
+    param([object[]]$Scope, [int]$Days, [bool]$IsAdmin, [string]$PlansDirectory, [string]$RequestedPlanId)
 
     $results = [System.Collections.Generic.List[object]]::new()
     $freedBytes = [int64]0
@@ -269,7 +228,7 @@ function Invoke-CleanupApply {
         $reason = ""
         $bytes = [int64]0
         $files = [int64]0
-        $failed = [System.Collections.Generic.List[string]]::new()
+        $failed = @()
 
         if ($target.Kind -eq "report") {
             $results.Add([pscustomobject]@{ id = $target.Id; status = "skipped"; reason = "只读盘点项，不执行删除"; freedBytes = 0; removedFiles = 0; failed = @() }) | Out-Null
@@ -280,49 +239,54 @@ function Invoke-CleanupApply {
             continue
         }
 
-        try {
-            if ($target.Kind -eq "recyclebin") {
-                $before = [int64]0
-                $beforeFiles = [int64]0
-                foreach ($volume in @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" -ErrorAction SilentlyContinue)) {
-                    $binPath = Join-Path $volume.DeviceID '$Recycle.Bin'
-                    if (-not (Test-Path -LiteralPath $binPath)) { continue }
-                    foreach ($sid in @(Get-ChildItem -LiteralPath $binPath -Directory -Force -ErrorAction SilentlyContinue)) {
-                        $sum = (Get-ChildItem -LiteralPath $sid.FullName -Recurse -Force -File -ErrorAction SilentlyContinue |
-                                Measure-Object -Property Length -Sum)
-                        $before += [int64]($sum.Sum)
-                        $beforeFiles += [int64]($sum.Count)
-                    }
-                }
-                Clear-RecycleBin -Force -ErrorAction Stop
-                $bytes = $before
-                $files = $beforeFiles
+        if ($target.Kind -eq "recyclebin") {
+            $plan = Read-CleanupPlan -Directory $PlansDirectory -PlanId $RequestedPlanId -TargetId $target.Id
+            if ($null -eq $plan) {
+                $status = "stale"
+                $reason = "预览清单已失效，请重新扫描后再清理"
             } else {
-                $scan = Get-CleanupCandidates -Target $target -Days $Days
-                foreach ($entry in $scan.Candidates) {
-                    try {
-                        $size = Measure-EntryBytes -Entry $entry
-                        $count = if ($entry.PSIsContainer) {
-                            (Get-ChildItem -LiteralPath $entry.FullName -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object).Count
-                        } else { 1 }
-                        Remove-Item -LiteralPath $entry.FullName -Recurse -Force -ErrorAction Stop
-                        $bytes += [int64]$size
-                        $files += [int64]$count
-                    } catch {
-                        $failed.Add("$($entry.Name): $($_.Exception.Message)")
-                    }
+                $before = Measure-RecycleBin
+                try {
+                    Clear-RecycleBin -Force -ErrorAction Stop
+                    $bytes = $before.Bytes
+                    $files = $before.Files
+                } catch {
+                    $status = "failed"
+                    $reason = $_.Exception.Message
                 }
             }
-        } catch {
-            $status = "failed"
-            $reason = $_.Exception.Message
+        } else {
+            $plan = Read-CleanupPlan -Directory $PlansDirectory -PlanId $RequestedPlanId -TargetId $target.Id
+            if ($null -eq $plan) {
+                $status = "stale"
+                $reason = "预览清单已失效，请重新扫描后再清理"
+            } else {
+                # Allowed roots come from the catalog, never from the plan file.
+                $allowed = [System.Collections.Generic.List[string]]::new()
+                foreach ($pattern in $target.Paths) {
+                    foreach ($root in (Resolve-CleanupRoots -Pattern $pattern).Roots) {
+                        if ($allowed -notcontains $root) { $allowed.Add($root) }
+                    }
+                }
+
+                if ($allowed.Count -eq 0) {
+                    if ($plan.Files.Count -gt 0) {
+                        $status = "skipped"
+                        $reason = "目录已不存在，无可清理内容"
+                    }
+                } else {
+                    $removal = Remove-CleanupPlanFiles -Plan $plan -AllowedRoots @($allowed.ToArray())
+                    $status = $removal.Status
+                    $bytes = $removal.FreedBytes
+                    $files = $removal.RemovedFiles
+                    $failed = $removal.Failed
+                    if ($status -eq "partial") { $reason = "$($removal.FailureCount) 个文件未能删除（多为被占用）" }
+                    elseif ($status -eq "failed") { $reason = "全部文件删除失败" }
+                }
+            }
         }
 
-        if ($failed.Count -gt 0) {
-            $status = "partial"
-            $reason = "$($failed.Count) 个条目删除失败（多为被占用）"
-            $failureCount++
-        }
+        if ($status -eq "partial" -or $status -eq "failed") { $failureCount++ }
 
         $freedBytes += $bytes
         $removedFiles += $files
@@ -343,6 +307,7 @@ function Invoke-CleanupApply {
         finishedAt    = (Get-Date).ToString("o")
         isAdmin       = $IsAdmin
         olderThanDays = $Days
+        planId        = $RequestedPlanId
         freedBytes    = $freedBytes
         removedFiles  = $removedFiles
         failureCount  = $failureCount
@@ -352,41 +317,26 @@ function Invoke-CleanupApply {
 
 # ---------------------------------------------------------------------------
 
-$isAdmin = Test-IsAdministrator
-Write-CleanupLog "Cleanup engine started: mode=$Mode admin=$isAdmin olderThanDays=$OlderThanDays"
-
-# A comma separated string keeps the Node -> PowerShell hand-off unambiguous:
-# passing "a,b" to a [string[]] parameter would bind a single element.
-$Targets = @()
-if ($TargetIds) {
-    $Targets = @($TargetIds -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-}
-
 $selection = $null
 if ($Mode -eq "Apply") {
-    if (-not $Targets -or $Targets.Count -eq 0) {
-        throw "Apply requires at least one target id"
-    }
+    if (-not $Targets -or $Targets.Count -eq 0) { throw "Apply requires at least one target id" }
+    if (-not $PlanId -or $PlanId -notmatch '^[0-9a-f]{32}$') { throw "Apply requires a valid plan id" }
     $selection = Get-CleanupTargetById -Ids $Targets
-    if ($selection.Unknown.Count -gt 0) {
-        throw "Unknown cleanup target: $($selection.Unknown -join ', ')"
-    }
+    if ($selection.Unknown.Count -gt 0) { throw "Unknown cleanup target: $($selection.Unknown -join ', ')" }
     $scope = $selection.Targets
 } else {
     $scope = @(Get-CleanupCatalog)
     if ($Targets -and $Targets.Count -gt 0) {
         $selection = Get-CleanupTargetById -Ids $Targets
-        if ($selection.Unknown.Count -gt 0) {
-            throw "Unknown cleanup target: $($selection.Unknown -join ', ')"
-        }
+        if ($selection.Unknown.Count -gt 0) { throw "Unknown cleanup target: $($selection.Unknown -join ', ')" }
         $scope = $selection.Targets
     }
 }
 
 $result = if ($Mode -eq "Scan") {
-    Invoke-CleanupScan -Scope $scope -Days $OlderThanDays -IsAdmin $isAdmin
+    Invoke-CleanupScan -Scope $scope -Days $OlderThanDays -IsAdmin $isAdmin -PlansDirectory $PlanDir
 } else {
-    Invoke-CleanupApply -Scope $scope -Days $OlderThanDays -IsAdmin $isAdmin
+    Invoke-CleanupApply -Scope $scope -Days $OlderThanDays -IsAdmin $isAdmin -PlansDirectory $PlanDir -RequestedPlanId $PlanId
 }
 
 if ($LogDir) {

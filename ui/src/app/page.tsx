@@ -487,6 +487,7 @@ export default function Home() {
           onOpenChange={setCleanupOpen}
           targets={cleanupSelection.targets}
           olderThanDays={1}
+          planId={cleanupScan?.planId ?? ""}
           onComplete={handleCleanupComplete}
           onReturnFocus={() => {
             const trigger = document.querySelector<HTMLElement>("[data-cleanup-apply]");

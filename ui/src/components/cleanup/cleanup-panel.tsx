@@ -209,6 +209,9 @@ export function CleanupPanel({
                           </div>
                           <p>{target.description}</p>
                           {target.note ? <p className="cleanup-note">{target.note}</p> : null}
+                          {target.warnings && target.warnings.length > 0 ? (
+                            <p className="cleanup-note">⚠ {target.warnings.join("；")}</p>
+                          ) : null}
                           {target.paths.length > 0 ? (
                             <p className="cleanup-paths" title={target.paths.join("\n")}>
                               {target.paths.slice(0, 2).join("  ·  ")}

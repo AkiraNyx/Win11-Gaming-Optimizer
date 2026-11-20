@@ -129,7 +129,7 @@ flowchart TD
 
 实际优化前必须成功创建文件备份，并在执行命令前原子写入待处理变更记录（journal）。程序会尝试创建系统还原点；Windows 创建频率限制可能使该步骤跳过，文件备份和变更记录仍用于恢复。
 
-空间清理不适用上述恢复流程：删除的缓存与更新包不写入变更记录，也无法通过“恢复”找回。清理前会展示每个位置的实测大小与占用文件数，并要求二次确认；正在被占用的文件会被跳过并计入失败项。
+空间清理不适用上述恢复流程：删除的缓存与更新包不写入变更记录，也无法通过“恢复”找回。清理前会展示每个位置的实测大小与占用文件数，并要求二次确认；正在被占用的文件会被跳过并计入失败项。执行只删除确认过的预览清单，预览之后新增的文件不会被清理，清单过期时需要重新扫描。
 
 > [!WARNING]
 > 部分失败不会自动回滚整次优化。请查看日志和变更清单，再主动选择恢复。完整备份恢复可能覆盖备份后在相同注册表或服务范围内发生的其他修改。
@@ -198,6 +198,7 @@ Node 测试覆盖配置依赖、预设、服务端和 Electron 启动。PowerShe
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\BackupRegistry.Tests.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Cleanup.Tests.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\GpuOptimization.Tests.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\PowerNetworkRegression.Tests.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\RestoreRetry.Tests.ps1

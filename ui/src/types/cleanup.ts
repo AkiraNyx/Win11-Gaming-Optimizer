@@ -22,6 +22,7 @@ export interface CleanupTarget {
   files: number;
   paths: string[];
   entries: CleanupEntry[];
+  warnings: string[];
   note: string;
 }
 
@@ -30,6 +31,8 @@ export interface CleanupScan {
   scannedAt: string;
   isAdmin: boolean;
   olderThanDays: number;
+  /** Identifies the previewed file list that apply is allowed to delete. */
+  planId: string;
   totalBytes: number;
   totalFiles: number;
   inventoryBytes: number;
@@ -37,7 +40,7 @@ export interface CleanupScan {
   logFile?: string;
 }
 
-export type CleanupApplyStatus = "ok" | "partial" | "failed" | "skipped";
+export type CleanupApplyStatus = "ok" | "partial" | "failed" | "skipped" | "stale";
 
 export interface CleanupApplyItem {
   id: string;
@@ -53,6 +56,7 @@ export interface CleanupApply {
   finishedAt: string;
   isAdmin: boolean;
   olderThanDays: number;
+  planId: string;
   freedBytes: number;
   removedFiles: number;
   failureCount: number;
@@ -62,5 +66,6 @@ export interface CleanupApply {
 export interface CleanupApplyRequest {
   targets: string[];
   olderThanDays: number;
+  planId: string;
   operationId?: string;
 }

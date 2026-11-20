@@ -829,6 +829,18 @@ function normalizeCleanupDays(value) {
   return value;
 }
 
+/**
+ * Apply is bound to the previewed plan: the engine deletes that file list and
+ * refuses to re-scan, so an id is mandatory and must look like the uuid produced
+ * by scan.
+ */
+function normalizeCleanupPlanId(value) {
+  if (typeof value !== "string" || !/^[0-9a-f]{32}$/.test(value)) {
+    throw new HttpError(400, "A valid cleanup preview id is required");
+  }
+  return value;
+}
+
 function parseCleanupResult(result, label) {
   const stdout = String(result.stdout || "").replace(/^\uFEFF/, "");
   if (result.code !== 0) {
@@ -1077,6 +1089,7 @@ async function handleAPI(req, res, url) {
     const body = await parseBody(req);
     const cleanupTargets = normalizeCleanupTargets(body.targets);
     const cleanupDays = normalizeCleanupDays(body.olderThanDays);
+    const cleanupPlanId = normalizeCleanupPlanId(body.planId);
     assertMutationRuntime();
     normalizeOperationId(body.operationId);
     const operation = beginOperation("cleanup", "Starting cleanup...", body.operationId);
@@ -1087,6 +1100,7 @@ async function handleAPI(req, res, url) {
       "-Mode", "Apply",
       "-TargetIds", cleanupTargets.join(","),
       "-OlderThanDays", String(cleanupDays),
+      "-PlanId", cleanupPlanId,
       "-LogDir", CONFIG_DIR,
     ];
     try {
