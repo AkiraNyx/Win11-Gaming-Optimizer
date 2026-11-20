@@ -18,6 +18,17 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
+      - name: Run Windows PowerShell regressions
+        shell: pwsh
+        run: |
+          $tests = @(Get-ChildItem -LiteralPath tests -Filter '*.Tests.ps1' -File)
+          if ($tests.Count -eq 0) { throw 'No Windows PowerShell regression tests found.' }
+          foreach ($test in $tests) {
+            Write-Host "Running $($test.Name)"
+            powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
