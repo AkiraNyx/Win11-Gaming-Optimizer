@@ -28,7 +28,7 @@ interface ExecutionStatus {
   progress: number;
   message: string;
   log: string[];
-  result: { exitCode: number; cleanup?: CleanupApply } | null;
+  result: { exitCode: number; cleanup?: CleanupApply; interrupted?: boolean } | null;
 }
 
 /**
@@ -80,6 +80,7 @@ export function CleanupDialog({
   const [result, setResult] = useState<CleanupApply | null>(null);
   const [error, setError] = useState("");
   const [refreshWarning, setRefreshWarning] = useState(false);
+  const [wholeConfirmed, setWholeConfirmed] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollInFlightRef = useRef(false);
   const operationIdRef = useRef<string | null>(null);
@@ -87,6 +88,9 @@ export function CleanupDialog({
   const completionNotifiedRef = useRef(false);
 
   const totalBytes = targets.reduce((sum, target) => sum + target.bytes, 0);
+  // Targets that are cleared as a whole (the recycle bin) also remove entries
+  // created after the preview, so they need their own confirmation.
+  const wholeTargets = targets.filter((target) => target.wholeTarget);
   useWindowCloseBlock(open && stage === "running");
 
   const stopPolling = useCallback(() => {
@@ -140,6 +144,12 @@ export function CleanupDialog({
         const stale = cleanup.results.some((item) => item.status === "stale");
         setStage(stale ? "stale" : "done");
         await refreshAfterRun();
+      } else if (nextStatus.result?.interrupted === true) {
+        // Files are deleted one by one, so a timeout or a crashed process may
+        // already have removed part of the selection.
+        setStage("unknown");
+        setError("清理进程在完成前结束，可能已经删除了部分文件。请重新扫描确认当前占用。");
+        await refreshAfterRun();
       } else {
         setStage("failed");
         setError(nextStatus.message || "清理未能完成，请查看运行日志。");
@@ -177,6 +187,7 @@ export function CleanupDialog({
     setResult(null);
     setError("");
     setRefreshWarning(false);
+    setWholeConfirmed(false);
   }, [open, stopPolling]);
 
   const startCleanup = async () => {
@@ -273,8 +284,22 @@ export function CleanupDialog({
             </ul>
             <p className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-relaxed text-destructive">
               <AlertTriangle className="size-4 shrink-0" />
-              回收站、浏览器缓存等位置删除后无法恢复；预览之后新增的文件不会被删除，过期清单需要重新扫描。
+              浏览器缓存、开发工具缓存等位置删除后无法恢复；预览之后新增的文件不会被删除，过期清单需要重新扫描。
             </p>
+            {wholeTargets.length > 0 ? (
+              <label className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:text-amber-200">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 shrink-0"
+                  checked={wholeConfirmed}
+                  onChange={(event) => setWholeConfirmed(event.target.checked)}
+                />
+                <span>
+                  我确认清空整个回收站：该位置按“整个清空”执行，
+                  <strong>预览之后新移入回收站的文件也会被永久删除</strong>，且无法恢复。
+                </span>
+              </label>
+            ) : null}
           </>
         ) : null}
 
@@ -353,7 +378,11 @@ export function CleanupDialog({
           {stage === "confirm" ? (
             <>
               <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
-              <Button variant="destructive" onClick={() => void startCleanup()} disabled={targets.length === 0 || !planId}>
+              <Button
+                variant="destructive"
+                onClick={() => void startCleanup()}
+                disabled={targets.length === 0 || !planId || (wholeTargets.length > 0 && !wholeConfirmed)}
+              >
                 <Trash2 className="size-4" />确认清理 {formatBytes(totalBytes)}
               </Button>
             </>

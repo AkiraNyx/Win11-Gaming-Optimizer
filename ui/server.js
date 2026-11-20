@@ -1131,16 +1131,27 @@ async function handleAPI(req, res, url) {
               appendLog(`[ERR] ${error.message}`);
             }
           }
+          // Deletion happens file by file. A non-zero exit or an unreadable
+          // result therefore does not mean "nothing was deleted", so the
+          // outcome is reported as interrupted rather than failed.
+          const outcome = cleanupResult
+            ? { cleanup: cleanupResult }
+            : { interrupted: true };
           finishOperation(
             operation,
             result.code,
-            result.code === 0 ? "Cleanup completed" : "Cleanup failed",
-            cleanupResult ? { cleanup: cleanupResult } : null,
+            result.code === 0 ? "Cleanup completed" : "Cleanup ended before reporting a result",
+            outcome,
           );
         },
         (error) => {
           appendLog(`[ERR] ${error.message}`);
-          finishOperation(operation, 1, /timed out/i.test(error.message) ? "Cleanup timed out" : "Cleanup failed");
+          finishOperation(
+            operation,
+            1,
+            /timed out/i.test(error.message) ? "Cleanup timed out" : "Cleanup ended before reporting a result",
+            { interrupted: true },
+          );
         },
       );
     } catch (error) {

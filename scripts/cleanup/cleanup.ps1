@@ -43,29 +43,31 @@ function Test-IsAdministrator {
     }
 }
 
-function Get-ReportDetails {
+function Get-StaleInstallerReport {
     param([Parameter(Mandatory = $true)]$Target, [int]$Limit = 25)
 
-    switch ($Target.Id) {
-        "stale-installers" {
-            $downloads = @($Target.Paths)[0]
-            if (-not (Test-Path -LiteralPath $downloads)) { return @() }
-            $extensions = @(".exe", ".msi", ".msu", ".zip", ".7z", ".rar", ".iso")
-            $files = @(Get-ChildItem -LiteralPath $downloads -File -Force -ErrorAction SilentlyContinue |
-                       Where-Object { $extensions -contains $_.Extension.ToLowerInvariant() -and $_.Length -ge 100MB } |
-                       Sort-Object Length -Descending |
-                       Select-Object -First $Limit)
-            return @($files | ForEach-Object {
-                [pscustomobject]@{
-                    Name  = $_.Name
-                    Bytes = [int64]$_.Length
-                    Date  = $_.LastWriteTime.ToString("yyyy-MM-dd")
-                }
-            })
-        }
-        default {
-            return @()
-        }
+    $empty = [pscustomobject]@{ Bytes = [int64]0; Count = [int64]0; Entries = @() }
+    $downloads = @($Target.Paths)[0]
+    if (-not $downloads -or -not (Test-Path -LiteralPath $downloads)) { return $empty }
+
+    $extensions = @(".exe", ".msi", ".msu", ".zip", ".7z", ".rar", ".iso")
+    $files = @(Get-ChildItem -LiteralPath $downloads -File -Force -ErrorAction SilentlyContinue |
+               Where-Object { $extensions -contains $_.Extension.ToLowerInvariant() -and $_.Length -ge 100MB } |
+               Sort-Object Length -Descending)
+
+    $bytes = [int64]0
+    foreach ($file in $files) { $bytes += [int64]$file.Length }
+
+    [pscustomobject]@{
+        Bytes = $bytes
+        Count = [int64]$files.Count
+        Entries = @($files | Select-Object -First $Limit | ForEach-Object {
+            [pscustomobject]@{
+                Name  = $_.Name
+                Bytes = [int64]$_.Length
+                Date  = $_.LastWriteTime.ToString("yyyy-MM-dd")
+            }
+        })
     }
 }
 
@@ -137,15 +139,20 @@ function Invoke-CleanupScan {
         $details = @()
         $warnings = @()
 
-        if ($target.Kind -eq "report") {
+        if ($target.Id -eq "stale-installers") {
+            # Size, file count and detail rows come from one candidate set: a
+            # total that includes files the list never shows is wrong.
+            $report = Get-StaleInstallerReport -Target $target
+            $bytes = $report.Bytes
+            $files = $report.Count
+            $details = $report.Entries
+            $inventoryBytes += $bytes
+        } elseif ($target.Kind -eq "report") {
             $inventory = Get-CleanupTargetInventory -Target $target -OlderThanDays $Days -IsAdmin $IsAdmin
             $bytes = $inventory.Bytes
             $roots = $inventory.Roots
             $warnings = $inventory.Warnings
             if (-not $inventory.Available) { $available = $false; $skippedReason = $inventory.SkippedReason }
-            if ($IncludeReportDetails -or $target.Kind -eq "report") {
-                $details = @(Get-ReportDetails -Target $target)
-            }
             $inventoryBytes += $bytes
         } elseif ($target.Kind -eq "recyclebin") {
             if ($target.RequiresAdmin -and -not $IsAdmin) {
@@ -157,21 +164,21 @@ function Invoke-CleanupScan {
                 $files = $measured.Files
                 $roots = @(Get-RecycleBinPaths)
                 $null = Save-CleanupPlan -Directory $PlansDirectory -PlanId $planId -TargetId $target.Id `
-                    -Roots $roots -Files @() -OlderThanDays $Days
+                    -Roots $roots -Records @() -OlderThanDays $Days
             }
             $totalBytes += $bytes
             $totalFiles += $files
         } else {
             $inventory = Get-CleanupTargetInventory -Target $target -OlderThanDays $Days -IsAdmin $IsAdmin
             $bytes = $inventory.Bytes
-            $files = $inventory.Files.Count
+            $files = $inventory.Records.Count
             $roots = $inventory.Roots
             $warnings = $inventory.Warnings
             if (-not $inventory.Available) { $available = $false; $skippedReason = $inventory.SkippedReason }
 
             if ($available) {
                 $null = Save-CleanupPlan -Directory $PlansDirectory -PlanId $planId -TargetId $target.Id `
-                    -Roots $roots -Files $inventory.Files -OlderThanDays $Days
+                    -Roots $roots -Records $inventory.Records -OlderThanDays $Days
             }
             $totalBytes += $bytes
             $totalFiles += $files
@@ -185,6 +192,7 @@ function Invoke-CleanupScan {
             risk            = $target.Risk
             kind            = $target.Kind
             requiresAdmin   = $target.RequiresAdmin
+            wholeTarget     = [bool]$target.WholeTarget
             defaultSelected = $target.DefaultSelected
             available       = $available
             skippedReason   = $skippedReason
@@ -270,7 +278,7 @@ function Invoke-CleanupApply {
                 }
 
                 if ($allowed.Count -eq 0) {
-                    if ($plan.Files.Count -gt 0) {
+                    if ($plan.Records.Count -gt 0) {
                         $status = "skipped"
                         $reason = "目录已不存在，无可清理内容"
                     }

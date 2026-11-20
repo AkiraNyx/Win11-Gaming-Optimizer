@@ -18,12 +18,21 @@ Design contract (see the review on the cleanup pull request):
    apply deletes that list. Anything created after the preview is not deleted;
    a missing or expired plan is reported as stale instead of being re-scanned.
 
-4. Failures are counted per target, and a target that throws is "failed", not
+4. Verification is bound to the file object. Each plan record carries the NTFS
+   file id, size and last-write time that were observed during the preview.
+   Apply opens a handle, proves the object still matches, resolves the handle to
+   its real path, and only then marks that same handle for deletion. A parent
+   directory swapped for a junction after the preview therefore cannot redirect
+   the delete, and a file regenerated at the same path is skipped.
+
+5. Failures are counted per target, and a target that throws is "failed", not
    silently "ok".
 #>
 
 $script:ReparseFlag = [System.IO.FileAttributes]::ReparsePoint
 $script:DirectoryFlag = [System.IO.FileAttributes]::Directory
+
+Import-Module (Join-Path $PSScriptRoot "CleanupNative.psm1") -Force
 
 function Get-NormalizedCleanupPath {
     param([string]$Path)
@@ -41,6 +50,10 @@ function Test-ReparseItem {
 Verifies that $Path is the same as, or below, $Root, and that no component of
 the path (up to the volume root) is a reparse point. A junction anywhere in the
 chain means the real target is unknown, so the path is refused.
+
+This is the cheap pre-check. Deletion itself never relies on it: it uses the
+handle identity and GetFinalPath, because the path can change between this check
+and the delete.
 #>
 function Test-CleanupPathContained {
     param(
@@ -139,9 +152,10 @@ function Resolve-CleanupRoots {
 <#
 Inventory for one target.
 
-Returns the exact file list that a subsequent apply may delete, together with
-the byte total for that list. Nothing else is counted: the preview number and
-the delete set must be the same thing.
+Returns the exact records that a subsequent apply may delete. Each record carries
+the identity observed during the preview, so apply can skip anything that changed
+in the meantime. Nothing else is counted: the preview number and the delete set
+must be the same thing.
 #>
 function Get-CleanupTargetInventory {
     param(
@@ -151,14 +165,15 @@ function Get-CleanupTargetInventory {
     )
 
     $inventory = [pscustomobject]@{
-        Available          = $true
-        SkippedReason      = ""
-        Roots              = @()
-        Files              = @()
-        Bytes              = [int64]0
-        ReparseSkipped     = 0
-        ContainmentDenied  = @()
-        Warnings           = @()
+        Available         = $true
+        SkippedReason     = ""
+        Roots             = @()
+        Files             = @()
+        Records           = @()
+        Bytes             = [int64]0
+        ReparseSkipped    = 0
+        ContainmentDenied = @()
+        Warnings          = @()
     }
 
     if ($Target.RequiresAdmin -and -not $IsAdmin) {
@@ -167,9 +182,11 @@ function Get-CleanupTargetInventory {
         return $inventory
     }
 
-    $cutoff = if ($OlderThanDays -ge 0) { (Get-Date).AddDays(-$OlderThanDays) } else { $null }
+    $cutoffTicks = $null
+    if ($OlderThanDays -ge 0) { $cutoffTicks = (Get-Date).AddDays(-$OlderThanDays).ToFileTimeUtc() }
+
     $roots = [System.Collections.Generic.List[string]]::new()
-    $files = [System.Collections.Generic.List[string]]::new()
+    $records = [System.Collections.Generic.List[object]]::new()
     $denied = [System.Collections.Generic.List[string]]::new()
     $bytes = [int64]0
     $reparseSkipped = 0
@@ -191,30 +208,34 @@ function Get-CleanupTargetInventory {
                     $inventory.Warnings += "无法读取 $root"
                     continue
                 }
-                foreach ($entry in $entries) {
-                    $info = Get-Item -LiteralPath $entry -Force -ErrorAction SilentlyContinue
-                    if ($null -eq $info) { continue }
-                    if (Test-ReparseItem $info) { $reparseSkipped++; continue }
-                    if ($null -ne $cutoff -and $info.LastWriteTime -ge $cutoff) { continue }
-                    $files.Add($entry)
-                    $bytes += [int64]$info.Length
-                }
+                $candidates = $entries
             } else {
                 $tree = Get-CleanupTreeFiles -Root $root -Filter $Target.Pattern
                 $reparseSkipped += $tree.ReparseSkipped
-                foreach ($file in $tree.Files) {
-                    $info = Get-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
-                    if ($null -eq $info) { continue }
-                    if ($null -ne $cutoff -and $info.LastWriteTime -ge $cutoff) { continue }
-                    $files.Add($file)
-                    $bytes += [int64]$info.Length
-                }
+                $candidates = $tree.Files
+            }
+
+            foreach ($file in $candidates) {
+                $identity = Get-CleanupFileIdentity -Path $file
+                if ($null -eq $identity) { continue }
+                if (($identity.Attributes -band [int64]$script:ReparseFlag) -ne 0) { $reparseSkipped++; continue }
+                if ($null -ne $cutoffTicks -and $identity.WriteTicks -ge $cutoffTicks) { continue }
+
+                $records.Add([pscustomobject]@{
+                    Path         = $file
+                    Size         = $identity.Size
+                    WriteTicks   = $identity.WriteTicks
+                    FileId       = $identity.FileId
+                    VolumeSerial = $identity.VolumeSerial
+                }) | Out-Null
+                $bytes += [int64]$identity.Size
             }
         }
     }
 
     $inventory.Roots = @($roots.ToArray())
-    $inventory.Files = @($files.ToArray())
+    $inventory.Records = @($records.ToArray())
+    $inventory.Files = @($records | ForEach-Object { $_.Path })
     $inventory.Bytes = $bytes
     $inventory.ReparseSkipped = $reparseSkipped
     $inventory.ContainmentDenied = @($denied.ToArray())
@@ -224,7 +245,6 @@ function Get-CleanupTargetInventory {
         $inventory.SkippedReason = if ($denied.Count -gt 0) { "路径经过目录联接，已拒绝清理" } else { "目录不存在" }
     } elseif ($denied.Count -gt 0) {
         $inventory.Warnings += "跳过了 $($denied.Count) 个经过目录联接的路径"
-        $inventory.SkippedReason = ""
     }
 
     return $inventory
@@ -233,9 +253,9 @@ function Get-CleanupTargetInventory {
 # ---------------------------------------------------------------------------
 # Plan persistence
 #
-# A plan is a newline separated list of absolute file paths plus a small JSON
-# sidecar. The HTTP layer keeps it under the protected runtime directory, and
-# apply re-validates every path against the declared root, so a tampered plan
+# A plan is a tab separated file: path, size, last-write ticks, file id, volume
+# serial. The HTTP layer keeps it under the protected runtime directory, and
+# apply re-validates every record against the catalog roots, so a tampered plan
 # still cannot reach outside the catalog.
 # ---------------------------------------------------------------------------
 
@@ -263,7 +283,7 @@ function Save-CleanupPlan {
         [Parameter(Mandatory = $true)][string]$PlanId,
         [Parameter(Mandatory = $true)][string]$TargetId,
         [string[]]$Roots = @(),
-        [string[]]$Files = @(),
+        [object[]]$Records = @(),
         [int]$OlderThanDays = 1
     )
 
@@ -272,24 +292,29 @@ function Save-CleanupPlan {
         New-Item -ItemType Directory -Path $paths.Directory -Force | Out-Null
     }
 
+    $lines = foreach ($record in $Records) {
+        $record.Path + "`t" + [string]$record.Size + "`t" + [string]$record.WriteTicks + "`t" +
+        [string]$record.FileId + "`t" + [string]$record.VolumeSerial
+    }
+
     $encoding = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllLines($paths.Files, [string[]]$Files, $encoding)
+    [System.IO.File]::WriteAllLines($paths.Files, [string[]]@($lines), $encoding)
 
     $meta = [pscustomobject]@{
         planId        = $PlanId
         targetId      = $TargetId
         roots         = @($Roots)
         olderThanDays = $OlderThanDays
-        fileCount     = $Files.Count
+        fileCount     = $Records.Count
         createdAt     = (Get-Date).ToString("o")
     }
     [System.IO.File]::WriteAllText($paths.Meta, ($meta | ConvertTo-Json -Compress), $encoding)
 
     [pscustomobject]@{
-        PlanId     = $PlanId
-        Files      = $paths.Files
-        Meta       = $paths.Meta
-        FileCount  = $Files.Count
+        PlanId    = $PlanId
+        Files     = $paths.Files
+        Meta      = $paths.Meta
+        FileCount = $Records.Count
     }
 }
 
@@ -298,7 +323,7 @@ Loads a plan. Returns $null when the plan is missing, unreadable, expired, or
 declared for a different target; the caller reports that as "stale" so the UI
 asks for a new preview instead of deleting a different set of files.
 
-The plan only carries the previewed file list. The allowed roots are re-derived
+The plan only carries the previewed records. The allowed roots are re-derived
 from the catalog by the caller, so a tampered plan cannot widen the scope.
 #>
 function Read-CleanupPlan {
@@ -324,24 +349,47 @@ function Read-CleanupPlan {
 
     if ([string]$meta.targetId -ne $TargetId) { return $null }
 
-    $files = @()
-    try { $files = [System.IO.File]::ReadAllLines($paths.Files) } catch { return $null }
+    $lines = @()
+    try { $lines = [System.IO.File]::ReadAllLines($paths.Files) } catch { return $null }
+
+    $records = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in $lines) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $parts = $line -split "`t"
+        if ($parts.Count -lt 5) { continue }
+        $records.Add([pscustomobject]@{
+            Path         = [string]$parts[0]
+            Size         = [int64]$parts[1]
+            WriteTicks   = [int64]$parts[2]
+            FileId       = [int64]$parts[3]
+            VolumeSerial = [int64]$parts[4]
+        }) | Out-Null
+    }
 
     [pscustomobject]@{
         PlanId    = $PlanId
         TargetId  = $TargetId
         Roots     = @($meta.roots)
-        Files     = @($files | Where-Object { $_ })
+        Records   = @($records.ToArray())
         CreatedAt = $created
     }
 }
 
 <#
-Deletes exactly the files listed in $Plan, then prunes directories that became
-empty. Every file must fall inside one of $AllowedRoots, which the caller derives
-from the catalog; the plan's own root list is never trusted for authorization.
-Each parent directory is validated once and cached, so a junction that appears
-after the preview cannot be traversed.
+Deletes exactly the records listed in $Plan.
+
+For each record:
+
+  1. open a DELETE handle on the path (this pins the object),
+  2. compare its identity with the preview (file id, size, last-write ticks) and
+     skip it when the object changed,
+  3. resolve the handle to its real path and require it to stay inside an
+     allowed root,
+  4. mark that same handle for deletion and close it.
+
+No step resolves the path a second time for the delete, so a directory swapped
+for a junction after the preview cannot redirect the operation. Empty
+directories are pruned the same way, and only when they are actually empty.
 
 Returns Status = ok | partial | failed.
 #>
@@ -354,7 +402,6 @@ function Remove-CleanupPlanFiles {
     $failed = [System.Collections.Generic.List[string]]::new()
     $removed = [int64]0
     $bytes = [int64]0
-    $verifiedDirectories = [System.Collections.Generic.Dictionary[string, bool]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $touchedDirectories = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
     $normalizedRoots = @($AllowedRoots | ForEach-Object {
@@ -370,33 +417,44 @@ function Remove-CleanupPlanFiles {
         return $null
     }
 
-    foreach ($file in $Plan.Files) {
+    foreach ($record in $Plan.Records) {
+        $file = [string]$record.Path
         $parent = [System.IO.Path]::GetDirectoryName($file)
         if ([string]::IsNullOrEmpty($parent)) { $failed.Add("$file : 路径无效"); continue }
 
         $root = & $findRoot $file
         if (-not $root) { $failed.Add("$file : 不在声明的清理范围内"); continue }
 
-        if (-not $verifiedDirectories.ContainsKey($parent)) {
-            $verifiedDirectories[$parent] = Test-CleanupPathContained -Path $parent -Root $root
-        }
-        if (-not $verifiedDirectories[$parent]) {
-            $failed.Add("$file : 路径经过目录联接，已拒绝")
-            continue
-        }
-
-        $info = Get-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
-        if ($null -eq $info -or $info.PSIsContainer) { continue }
-        if (Test-ReparseItem $info) { continue }
-
+        $handle = $null
         try {
-            $length = [int64]$info.Length
-            Remove-Item -LiteralPath $file -Force -ErrorAction Stop
+            $handle = [CleanupNative]::Open($file, $false)
+            $identity = [CleanupNative]::GetIdentity($handle)
+            $resolved = [CleanupNative]::GetFinalPath($handle)
+
+            # The previewed object is gone or replaced; deleting the replacement
+            # would be outside what the user confirmed.
+            if ([int64]$identity[1] -ne [int64]$record.FileId -or
+                [int64]$identity[2] -ne [int64]$record.Size -or
+                [int64]$identity[3] -ne [int64]$record.WriteTicks) {
+                $failed.Add("$($record.Path) : 预览后已被替换或修改，已跳过")
+                continue
+            }
+
+            if (-not (Test-CleanupPathContained -Path $resolved -Root $root)) {
+                $failed.Add("$($record.Path) : 实际路径不在清理范围内，已拒绝")
+                continue
+            }
+
+            [CleanupNative]::MarkDelete($handle)
             $removed++
-            $bytes += $length
+            $bytes += [int64]$record.Size
             $null = $touchedDirectories.Add($parent)
         } catch {
-            $failed.Add("$($info.Name) : $($_.Exception.Message)")
+            $failed.Add("$([System.IO.Path]::GetFileName($file)) : $($_.Exception.Message)")
+        } finally {
+            if ($null -ne $handle) {
+                try { $handle.Dispose() } catch { }
+            }
         }
     }
 
@@ -418,7 +476,21 @@ function Remove-CleanupPlanFiles {
         $entries = $null
         try { $entries = @([System.IO.Directory]::EnumerateFileSystemEntries($dir)) } catch { continue }
         if ($entries.Count -ne 0) { continue }
-        try { [System.IO.Directory]::Delete($dir, $false) } catch { }
+
+        $handle = $null
+        try {
+            $handle = [CleanupNative]::Open($dir, $false)
+            $resolved = [CleanupNative]::GetFinalPath($handle)
+            if (-not (Test-CleanupPathContained -Path $resolved -Root (Split-Path -Parent $dir))) { continue }
+            [CleanupNative]::MarkDelete($handle)
+            $removed++
+        } catch {
+            # Directory vanished or became non-empty; nothing to report per directory.
+        } finally {
+            if ($null -ne $handle) {
+                try { $handle.Dispose() } catch { }
+            }
+        }
     }
 
     $status = "ok"

@@ -32,6 +32,7 @@ function New-CleanupTarget {
         [string]$Pattern = "*",
         [int]$OlderThanDays = -1,
         [bool]$RequiresAdmin = $false,
+        [bool]$WholeTarget = $false,
         [string]$Note = ""
     )
 
@@ -46,6 +47,7 @@ function New-CleanupTarget {
         Pattern        = $Pattern
         OlderThanDays  = $OlderThanDays
         RequiresAdmin  = $RequiresAdmin
+        WholeTarget    = $WholeTarget
         Note           = $Note
         DefaultSelected = ($Risk -eq "safe")
     }
@@ -228,7 +230,8 @@ function Get-CleanupCatalog {
         (New-CleanupTarget -Id "recycle-bin" -Group "user-files" `
             -Label "回收站" `
             -Description "清空所有本地卷回收站中的内容，不可恢复" `
-            -Risk caution -Kind recyclebin -OlderThanDays 0)
+            -Risk caution -Kind recyclebin -OlderThanDays 0 -WholeTarget $true `
+            -Note "清空整个回收站：预览之后新增的条目也会被永久删除")
 
         (New-CleanupTarget -Id "stale-installers" -Group "user-files" `
             -Label "Downloads 中的大安装包" `

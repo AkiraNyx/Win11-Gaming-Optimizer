@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 Regression tests for the cleanup engine, covering the four failure modes raised in
 review: junction escape, per-file retention, preview scope drift, and partial
@@ -10,6 +10,9 @@ Run:  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Cleanup.Te
 $ErrorActionPreference = "Stop"
 
 Import-Module (Join-Path $PSScriptRoot "..\scripts\cleanup\CleanupEngine.psm1") -Force
+# The engine consumes this internally; the tests read identities directly to
+# build records for the scope-refusal case.
+Import-Module (Join-Path $PSScriptRoot "..\scripts\cleanup\CleanupNative.psm1") -Force
 
 function Assert-True {
     param([bool]$Condition, [string]$Message)
@@ -90,7 +93,7 @@ try {
 
     $planDir = Join-Path $base "plans"
     $planId = [guid]::NewGuid().ToString("N")
-    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Files $inventory.Files
+    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Records $inventory.Records
     $plan = Read-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id
     $removal = Remove-CleanupPlanFiles -Plan $plan -AllowedRoots @($root)
 
@@ -143,7 +146,7 @@ try {
 
     $planDir = Join-Path $base "plans"
     $planId = [guid]::NewGuid().ToString("N")
-    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Files $inventory.Files
+    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Records $inventory.Records
     $plan = Read-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id
     $null = Remove-CleanupPlanFiles -Plan $plan -AllowedRoots @($root)
 
@@ -168,7 +171,7 @@ try {
 
     $planDir = Join-Path $base "plans"
     $planId = [guid]::NewGuid().ToString("N")
-    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Files $inventory.Files
+    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Records $inventory.Records
 
     # A file that appears after the user confirmed the preview.
     Write-AgedFile -Path (Join-Path $root "appeared-later.log") -AgeDays 10
@@ -197,7 +200,7 @@ try {
     Assert-True ($null -eq $missing) "missing plan returns null"
 
     $planId = [guid]::NewGuid().ToString("N")
-    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Files @((Join-Path $root "old.log"))
+    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Records @()
     $otherTarget = Read-CleanupPlan -Directory $planDir -PlanId $planId -TargetId "different-target"
     Assert-True ($null -eq $otherTarget) "plan does not load for a different target"
 
@@ -227,7 +230,7 @@ try {
 
     $planDir = Join-Path $base "plans"
     $planId = [guid]::NewGuid().ToString("N")
-    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Files $inventory.Files
+    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Records $inventory.Records
     $plan = Read-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id
 
     $handle = [System.IO.File]::Open($locked, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
@@ -260,9 +263,13 @@ try {
     $planDir = Join-Path $base "plans"
     $planId = [guid]::NewGuid().ToString("N")
     # A tampered plan that tries to reach outside the declared root.
-    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Files @(
-        (Join-Path $root "old.log"),
-        (Join-Path $outside "secret.txt")
+    $insidePath = Join-Path $root "old.log"
+    $outsidePath = Join-Path $outside "secret.txt"
+    $insideId = Get-CleanupFileIdentity -Path $insidePath
+    $outsideId = Get-CleanupFileIdentity -Path $outsidePath
+    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Records @(
+        [pscustomobject]@{ Path = $insidePath; Size = $insideId.Size; WriteTicks = $insideId.WriteTicks; FileId = $insideId.FileId; VolumeSerial = $insideId.VolumeSerial },
+        [pscustomobject]@{ Path = $outsidePath; Size = $outsideId.Size; WriteTicks = $outsideId.WriteTicks; FileId = $outsideId.FileId; VolumeSerial = $outsideId.VolumeSerial }
     )
     $plan = Read-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id
     $removal = Remove-CleanupPlanFiles -Plan $plan -AllowedRoots @($root)
@@ -270,6 +277,71 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $outside "secret.txt")) "path outside allowed roots is never deleted"
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $root "old.log"))) "in-scope entry is still deleted"
     Assert-True ($removal.FailureCount -ge 1) "out-of-scope entry is reported as a failure"
+} finally {
+    Remove-TestTree -Path $base
+}
+
+# ---------------------------------------------------------------------------
+Write-Host "`n[8] a file regenerated after the preview is skipped" -ForegroundColor Cyan
+# ---------------------------------------------------------------------------
+$base = New-TestRoot
+try {
+    $root = Join-Path $base "root"
+    $file = Join-Path $root "cache.bin"
+    Write-AgedFile -Path $file -AgeDays 10 -Content "original"
+
+    $target = New-TestTarget -Root $root
+    $inventory = Get-CleanupTargetInventory -Target $target -OlderThanDays 1 -IsAdmin $true
+    Assert-True ($inventory.Records.Count -eq 1) "the preview records exactly one file"
+
+    $planDir = Join-Path $base "plans"
+    $planId = [guid]::NewGuid().ToString("N")
+    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Records $inventory.Records
+
+    # The owning application rewrites the same path after the preview.
+    [System.IO.File]::WriteAllText($file, "regenerated content")
+    [System.IO.File]::SetLastWriteTime($file, (Get-Date))
+
+    $plan = Read-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id
+    $removal = Remove-CleanupPlanFiles -Plan $plan -AllowedRoots @($root)
+
+    Assert-True (Test-Path -LiteralPath $file) "regenerated file survives"
+    Assert-True ($removal.RemovedFiles -eq 0) "nothing is deleted for a replaced file"
+    Assert-True ($removal.FailureCount -ge 1) "the replacement is reported, not silently skipped"
+} finally {
+    Remove-TestTree -Path $base
+}
+
+# ---------------------------------------------------------------------------
+Write-Host "`n[9] a parent swapped for a junction after the preview cannot redirect the delete" -ForegroundColor Cyan
+# ---------------------------------------------------------------------------
+$base = New-TestRoot
+try {
+    $root = Join-Path $base "root"
+    $sub = Join-Path $root "sub"
+    Write-AgedFile -Path (Join-Path $sub "old.log") -AgeDays 10
+
+    $target = New-TestTarget -Root $root
+    $inventory = Get-CleanupTargetInventory -Target $target -OlderThanDays 1 -IsAdmin $true
+    Assert-True ($inventory.Records.Count -eq 1) "the preview records the file under root\sub"
+
+    $planDir = Join-Path $base "plans"
+    $planId = [guid]::NewGuid().ToString("N")
+    $null = Save-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id -Roots @($root) -Records $inventory.Records
+
+    # Replace the previewed directory with a junction that points outside the root.
+    $outside = Join-Path $base "outside"
+    New-Item -ItemType Directory -Path $outside -Force | Out-Null
+    Write-AgedFile -Path (Join-Path $outside "old.log") -AgeDays 10 -Content "valuable"
+    Remove-TestTree -Path $sub
+    New-Item -ItemType Junction -Path $sub -Target $outside | Out-Null
+
+    $plan = Read-CleanupPlan -Directory $planDir -PlanId $planId -TargetId $target.Id
+    $removal = Remove-CleanupPlanFiles -Plan $plan -AllowedRoots @($root)
+
+    Assert-True (Test-Path -LiteralPath (Join-Path $outside "old.log")) "file behind the substituted junction survives"
+    Assert-True ($removal.RemovedFiles -eq 0) "nothing outside the root is deleted"
+    Assert-True ($removal.FailureCount -ge 1) "the substitution is reported as a failure"
 } finally {
     Remove-TestTree -Path $base
 }

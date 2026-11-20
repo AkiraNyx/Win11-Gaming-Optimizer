@@ -15,6 +15,8 @@ export interface CleanupTarget {
   risk: CleanupRisk;
   kind: CleanupKind;
   requiresAdmin: boolean;
+  /** The target is cleared as a whole: new entries since the preview are included. */
+  wholeTarget: boolean;
   defaultSelected: boolean;
   available: boolean;
   skippedReason: string;
