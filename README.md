@@ -23,6 +23,7 @@
 
 - **状态与差异**：读取 84 个项目，仅将可验证的差异纳入执行计划。
 - **目标与依赖**：提供保守、平衡、极致和自定义目标，检查硬件条件与配置依赖。
+- **空间清理**：在「存储优化」页扫描临时缓存、软件更新包与只读盘点项，逐项预览后再删除。
 - **备份与验证**：先保存备份和变更记录，再应用设置并检查结果。
 - **恢复与重试**：保留恢复进度，支持单次恢复和逆序撤销全部未恢复记录。
 
@@ -104,6 +105,8 @@ flowchart TD
 | 隐私 | 诊断数据、广告 ID、活动历史、位置、建议、Cortana 策略 |
 | 安全 | Defender 空闲扫描、DEP、CPU 缓解策略、明确指定的游戏目录排除项 |
 
+**空间清理**作为「存储优化」页内的独立区块：同页显示缓存与更新包占用并支持勾选删除，但不参与预设、配置差异和变更回滚。它只操作 `scripts/cleanup/CleanupCatalog.psm1` 中声明的固定位置，默认只读扫描，勾选后二次确认才删除。
+
 
 </details>
 
@@ -125,6 +128,8 @@ flowchart TD
 ## 安全与恢复
 
 实际优化前必须成功创建文件备份，并在执行命令前原子写入待处理变更记录（journal）。程序会尝试创建系统还原点；Windows 创建频率限制可能使该步骤跳过，文件备份和变更记录仍用于恢复。
+
+空间清理不适用上述恢复流程：删除的缓存与更新包不写入变更记录，也无法通过“恢复”找回。清理前会展示每个位置的实测大小与占用文件数，并要求二次确认；正在被占用的文件会被跳过并计入失败项。
 
 > [!WARNING]
 > 部分失败不会自动回滚整次优化。请查看日志和变更清单，再主动选择恢复。完整备份恢复可能覆盖备份后在相同注册表或服务范围内发生的其他修改。
@@ -161,6 +166,7 @@ flowchart TD
 | `backup_*\backup_manifest.json` | 文件备份清单 |
 | `config_*.json` | 执行配置快照 |
 | `pre_optimize_*.json` | 优化前快照 |
+| `cleanup_*.log` | 空间清理扫描与删除日志 |
 | `runtime\scripts-*` | 已校验的打包脚本 |
 
 </details>
@@ -209,6 +215,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\RestoreRetry.Tes
 
 脚本校验 Schema 和预设副本，构建 UI，执行 Node/Electron 测试、ESLint 和 TypeScript 检查，再使用 Electron Builder 打包。成功后产物位于 `dist\Win11Optimizer.exe`。
 
+若打包步骤因 `unable to verify the first certificate` 失败（企业代理或本地证书链未进入 Node 内置 CA），先用系统证书库重试：
+
+```powershell
+$env:NODE_OPTIONS = "--use-system-ca"
+.\Build.bat
+```
+
 <details>
 <summary>项目结构</summary>
 
@@ -217,6 +230,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\RestoreRetry.Tes
 ├─ assets\                  # README 与项目资源
 ├─ config\                  # Schema、预设及运行输出目录
 ├─ scripts\                 # 优化、备份、恢复、卸载 PowerShell 模块
+│  └─ cleanup\              # 空间清理目录清单与执行引擎
 ├─ tests\                   # PowerShell 回归测试
 ├─ ui\
 │  ├─ electron\             # Electron 主进程与启动逻辑
